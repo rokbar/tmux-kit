@@ -21,7 +21,7 @@ Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 
 | Key | Action |
 | --- | --- |
-| `prefix W` | fzf branch picker → worktree + session (`alt-enter`: new branch) |
+| `prefix W` | fzf branch picker → worktree + session (`alt-enter`: new branch, `alt-o`: new branch from origin's default branch) |
 | `prefix X` | remove the worktree you're in (asks first, refuses on unsaved work) |
 | `prefix s` | sessions, most recently used first |
 | `prefix e` | open the git root in your editor (`code`, or `$TMUX_KIT_EDITOR`) |
