@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+# wt: one git worktree + tmux session per branch.
+# Worktrees live next to the main clone as <repo>--<slug> (slug = branch, / -> -);
+# each gets a tmux session (default name: branch). Sessions are found by their
+# start dir, so renaming one (prefix+$) doesn't break wt.
+# Settings: see "config" below; override them in $WT_CONFIG.
+set -euo pipefail
+
+# --- config (defaults; override in $WT_CONFIG, a bash file) ---
+WT_ROOT=""          # dir for worktrees; empty: next to the main clone
+WT_SEP="--"         # worktree dir = <repo><WT_SEP><slug>
+WT_REMOTE="origin"  # remote to check out existing branches from
+WT_GIT_UI="lazygit" # command for an extra window in new sessions; empty: none
+WT_DEV_SCRIPT="dev" # package.json script started in a "dev" window; empty: never
+WT_PORT_START=3000  # first port tried for the dev server (passed as $PORT)
+# copied from the invoking worktree into new ones (if missing there)
+WT_COPY_FILES=(.env .env.local .env.development.local .devurl .mcp.json)
+# symlinked to the main clone's copy (if it exists there), so all worktrees share it
+WT_LINK_FILES=(CLAUDE.local.md .claude/settings.local.json)
+# optional hook, run in a new worktree before linking: wt_before_link <main> <dir>
+WT_CONFIG="${WT_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/wt/config.sh}"
+# shellcheck source=/dev/null
+if [ -f "$WT_CONFIG" ]; then . "$WT_CONFIG"; fi
+
+usage() {
+  cat <<'EOF'
+usage:
+  wt [-d] [--no-dev] [-n <name>] [--from <ref>] <branch>
+        open <branch> in its own worktree + tmux session. Reuses the worktree
+        that has it checked out; else checks out the local or $WT_REMOTE branch;
+        else creates <branch> from the current branch (or --from <ref>).
+        -d: leave the session detached (don't switch/attach)
+        -n: name for a new session (default: branch)
+        New sessions get a $WT_GIT_UI window (if installed).
+        New worktrees run the deps install; if package.json has a
+        $WT_DEV_SCRIPT script, install + `PORT=<port> <pm> run <script>` run in
+        a "dev" window, port = first free from $WT_PORT_START not claimed by
+        a sibling's .devurl (written to the new worktree's .devurl).
+        --no-dev: install only
+  wt pick
+        fzf branch picker. enter: open match (or typed name if no match),
+        alt-enter: create typed name as a new branch. Then asks for a session
+        name if the worktree has no session yet (enter keeps the default)
+  wt close
+        confirm, then wt rm the worktree you're in (for tmux prefix+X)
+  wt ls
+        list worktrees with dirty state and tmux session
+  wt rm [-f] <slug|branch|path>
+        remove worktree + kill its session. Refuses on uncommitted changes,
+        commits found on no other branch/remote, or unlinked local files.
+        -f: skip checks and force removal
+
+config: $WT_CONFIG (default ~/.config/wt/config.sh), see the top of this script
+EOF
+}
+
+die() { echo "wt: $*" >&2; exit 1; }
+
+# keep errors readable before a tmux popup closes
+pause() { read -rsn1 -p "wt failed (see above); press any key"; }
+
+# tmux session names can't contain . or :
+clean_name() {
+  local n="${1#.}"
+  printf '%s' "${n//[.:]/_}"
+}
+
+# Folder-based name, same as zsh `t`.
+session_name() { clean_name "$(basename "$1")"; }
+
+# Name of the session started in <dir>, if any.
+session_for() {
+  tmux list-sessions -F '#{session_path}'$'\t''#{session_name}' 2>/dev/null |
+    awk -F'\t' -v d="$1" '$1==d{print $2; exit}' || true
+}
+
+load_repo() {
+  git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repo"
+  here="$(git rev-parse --show-toplevel)"
+  main="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+  repo="$(basename "$main")"
+  root="${WT_ROOT:-$(dirname "$main")}"
+  root="${root/#\~/$HOME}"
+}
+
+wt_dir() { printf '%s/%s%s%s' "$root" "$repo" "$WT_SEP" "${1//\//-}"; }
+
+current_branch() { git -C "$here" symbolic-ref --quiet --short HEAD || echo HEAD; }
+
+# Path of the worktree that has <branch> checked out, if any.
+checked_out_at() {
+  git -C "$main" worktree list --porcelain |
+    awk -v ref="refs/heads/$1" '/^worktree /{p=substr($0,10)} $0=="branch " ref {print p; exit}'
+}
+
+create() {
+  local branch="$1" dir="$2" base="$3"
+  if [ -z "$base" ] && git -C "$main" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$main" worktree add "$dir" "$branch"
+  elif [ -z "$base" ] && git -C "$main" remote get-url "$WT_REMOTE" >/dev/null 2>&1 &&
+    git -C "$main" fetch --quiet "$WT_REMOTE" "$branch" 2>/dev/null &&
+    git -C "$main" show-ref --verify --quiet "refs/remotes/$WT_REMOTE/$branch"; then
+    git -C "$main" worktree add --track -b "$branch" "$dir" "$WT_REMOTE/$branch"
+  else
+    [ -n "$base" ] || base="$(current_branch)"
+    [ "$base" = HEAD ] && base="$(git -C "$here" rev-parse --short HEAD)"
+    echo "wt: new branch $branch from $base"
+    git -C "$main" worktree add --no-track -b "$branch" "$dir" "$base"
+  fi
+}
+
+# Copy per-worktree files from the invoking worktree; link shared ones to the main clone.
+bootstrap() {
+  local dir="$1" f up target
+  for f in ${WT_COPY_FILES[@]+"${WT_COPY_FILES[@]}"}; do
+    if [ -f "$here/$f" ] && [ ! -e "$dir/$f" ]; then cp "$here/$f" "$dir/$f"; fi
+  done
+  if declare -F wt_before_link >/dev/null; then wt_before_link "$main" "$dir"; fi
+  for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
+    if [ -e "$main/$f" ] && [ ! -e "$dir/$f" ] && [ ! -L "$dir/$f" ]; then
+      if [ "$root" = "$(dirname "$main")" ]; then
+        # sibling: relative link, so it also resolves inside a devcontainer
+        # one ../ per dir level in <f>, plus one out of the worktree
+        up="$(printf '%s' "$f" | sed 's|[^/]*/|../|g; s|[^/]*$||')../"
+        target="$up$repo/$f"
+      else
+        target="$main/$f"
+      fi
+      mkdir -p "$(dirname "$dir/$f")"
+      ln -s "$target" "$dir/$f"
+    fi
+  done
+}
+
+# pnpm/bun/yarn/npm, from the lockfile; empty if not a JS project.
+pkg_manager() {
+  if [ -f "$1/pnpm-lock.yaml" ]; then echo pnpm
+  elif [ -f "$1/bun.lock" ] || [ -f "$1/bun.lockb" ]; then echo bun
+  elif [ -f "$1/yarn.lock" ]; then echo yarn
+  elif [ -f "$1/package-lock.json" ]; then echo npm
+  fi
+}
+
+has_dev_script() {
+  [ -n "$WT_DEV_SCRIPT" ] && [ -f "$1/package.json" ] &&
+    grep -q "\"$WT_DEV_SCRIPT\"[[:space:]]*:" "$1/package.json"
+}
+
+# First port from $WT_PORT_START that nothing listens on and no other worktree
+# of this repo has claimed in its .devurl (its server may just not be running now).
+free_port() {
+  local p="$WT_PORT_START" claimed
+  claimed="$(cat "$main/.devurl" "$root/$repo$WT_SEP"*/.devurl 2>/dev/null |
+    sed -n 's/.*:\([0-9][0-9]*\).*/\1/p' || true)"
+  while grep -qx "$p" <<<"$claimed" || lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; do
+    p=$((p + 1))
+  done
+  echo "$p"
+}
+
+open_session() {
+  local dir="$1" fresh="$2" detach="$3" name="$4" ask="$5" branch="$6" dev="$7" def pm port
+  def="$(session_for "$dir")"
+  if [ -n "$def" ]; then
+    name="$def"
+  else
+    def="$(clean_name "$branch")"
+    if tmux has-session -t "=$def" 2>/dev/null; then def="$(session_name "$dir")"; fi
+    while :; do
+      if [ "$ask" = 1 ] && [ -z "$name" ]; then read -r -p "session name [$def]: " name; fi
+      name="$(clean_name "${name:-$def}")"
+      if ! tmux has-session -t "=$name" 2>/dev/null; then break; fi
+      [ "$ask" = 1 ] || die "tmux session $name already exists"
+      echo "wt: tmux session $name already exists"
+      name=""
+    done
+    tmux new-session -d -s "$name" -c "$dir"
+    if [ -n "$WT_GIT_UI" ] && command -v "${WT_GIT_UI%% *}" >/dev/null; then
+      tmux new-window -d -t "=$name:" -n "${WT_GIT_UI%% *}" -c "$dir"
+      tmux send-keys -t "=$name:${WT_GIT_UI%% *}" "$WT_GIT_UI" Enter
+    fi
+    pm="$(pkg_manager "$dir")"
+    if [ "$fresh" = 1 ] && [ -n "$pm" ]; then
+      if [ "$dev" = 1 ] && has_dev_script "$dir"; then
+        # own window so the first one stays free; .devurl tells `web` and later
+        # wt runs which port this worktree owns
+        port="$(free_port)"
+        echo "http://localhost:$port" >"$dir/.devurl"
+        tmux new-window -d -t "=$name:" -n dev -c "$dir"
+        tmux send-keys -t "=$name:dev" "$pm install && PORT=$port $pm run $WT_DEV_SCRIPT" Enter
+        echo "wt: dev server on http://localhost:$port (window dev)"
+      else
+        tmux send-keys -t "=$name:" "$pm install" Enter
+      fi
+    fi
+  fi
+  echo "wt: $dir (tmux session $name)"
+  if [ "$detach" = 1 ]; then return; fi
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$name"; else exec tmux attach -t "=$name"; fi
+}
+
+cmd_open() {
+  local detach=0 base="" branch="" dir fresh=0 name="" ask=0 dev=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -d) detach=1 ;;
+      --no-dev) dev=0 ;;
+      -n) name="${2:?-n needs a name}"; shift ;;
+      --ask-name) ask=1 ;;
+      --from) base="${2:?--from needs a ref}"; shift ;;
+      -*) usage >&2; exit 1 ;;
+      *) branch="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$branch" ] || { usage >&2; exit 1; }
+  git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch name: $branch"
+  load_repo
+
+  dir="$(checked_out_at "$branch")"
+  if [ -n "$dir" ]; then
+    [ -z "$base" ] || die "$branch already exists (checked out at $dir); --from ignored"
+  else
+    dir="$(wt_dir "$branch")"
+    [ ! -e "$dir" ] || die "$dir exists but doesn't have $branch checked out"
+    if [ -n "$base" ] && git -C "$main" show-ref --verify --quiet "refs/heads/$branch"; then
+      die "$branch already exists; drop --from to check it out"
+    fi
+    if [ -n "$name" ] && tmux has-session -t "=$(clean_name "$name")" 2>/dev/null; then
+      die "tmux session $(clean_name "$name") already exists"
+    fi
+    create "$branch" "$dir" "$base"
+    bootstrap "$dir"
+    fresh=1
+  fi
+  open_session "$dir" "$fresh" "$detach" "$name" "$ask" "$branch" "$dev"
+}
+
+cmd_pick() {
+  load_repo
+  command -v fzf >/dev/null || die "fzf not installed"
+  local branch
+  branch="$(
+    {
+      git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads
+      git for-each-ref --sort=-committerdate --format='%(refname:lstrip=3)' "refs/remotes/$WT_REMOTE"
+    } | grep -vx HEAD | awk '!seen[$0]++' |
+      fzf --prompt='branch> ' --header="alt-enter: new branch from $(current_branch)" \
+        --bind 'enter:accept-or-print-query,alt-enter:print-query'
+  )" || exit 0
+  [ -n "$branch" ] || exit 0
+  # separate process so set -e still applies; pause so errors stay visible in a popup
+  "$0" --ask-name "$branch" || { pause; exit 1; }
+}
+
+cmd_close() {
+  local top ans
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "wt: not in a git repo"; pause; exit 1; }
+  load_repo
+  if [ "$top" = "$main" ]; then echo "wt: $top is the main clone, not a worktree"; pause; exit 1; fi
+  read -r -p "remove worktree $(basename "$top")? [y/N] " ans
+  case "$ans" in y | Y) ;; *) exit 0 ;; esac
+  "$0" rm "$top" || { pause; exit 1; }
+}
+
+cmd_ls() {
+  load_repo
+  local d b flags s
+  git -C "$main" worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r d; do
+    if [ ! -d "$d" ]; then printf '%s  (missing; git worktree prune)\n' "$d"; continue; fi
+    b="$(git -C "$d" symbolic-ref --quiet --short HEAD || echo '(detached)')"
+    flags=""
+    if [ -n "$(git -C "$d" status --porcelain)" ]; then flags+="  dirty"; fi
+    s="$(session_for "$d")"
+    if [ -n "$s" ]; then flags+="  [tmux: $s]"; fi
+    printf '%s  %s%s\n' "$d" "$b" "$flags"
+  done
+}
+
+cmd_rm() {
+  local force=0 arg="" dir b name out f problems=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -f) force=1 ;;
+      -*) usage >&2; exit 1 ;;
+      *) arg="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$arg" ] || { usage >&2; exit 1; }
+  load_repo
+
+  case "$arg" in
+    /* | .*) dir="$(git -C "$arg" rev-parse --show-toplevel 2>/dev/null)" || die "not a git dir: $arg" ;;
+    *)
+      dir="$(checked_out_at "$arg")"
+      [ -n "$dir" ] || dir="$(wt_dir "${arg#"$repo$WT_SEP"}")"
+      ;;
+  esac
+  git -C "$main" worktree list --porcelain | grep -qxF "worktree $dir" || die "not a worktree: $dir"
+  [ "$dir" != "$main" ] || die "refusing to remove the main clone"
+  b="$(git -C "$dir" symbolic-ref --quiet --short HEAD || true)"
+  name="$(session_for "$dir")"
+
+  if [ "$force" = 0 ]; then
+    # our own links show as untracked; they're removed below
+    out="$(git -C "$dir" status --porcelain --untracked-files=all | while IFS= read -r l; do
+      [ -L "$dir/${l#?? }" ] && [[ " ${WT_LINK_FILES[*]-} " == *" ${l#?? } "* ]] || echo "$l"
+    done)"
+    if [ -n "$out" ]; then problems+=$'\n'"uncommitted changes:"$'\n'"$out"; fi
+
+    if [ -n "$b" ]; then
+      out="$(git -C "$dir" log --oneline HEAD --not --exclude="$b" --branches --remotes)"
+    else
+      out="$(git -C "$dir" log --oneline HEAD --not --branches --remotes)"
+    fi
+    if [ -n "$out" ]; then problems+=$'\n'"commits on no other branch or remote:"$'\n'"$out"; fi
+
+    for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
+      if [ -e "$dir/$f" ] && [ ! -L "$dir/$f" ]; then
+        if [ -f "$dir/$f" ] && [ -f "$main/$f" ] && cmp -s "$dir/$f" "$main/$f"; then continue; fi
+        problems+=$'\n'"$f is a real file/dir, not a link to the main clone (gitignored, would be lost): merge into $main/$f"
+      fi
+    done
+
+    if [ -n "$problems" ]; then die "not removing $dir:$problems"$'\n'"(wt rm -f to force)"; fi
+  fi
+
+  if git -C "$main" worktree list --porcelain |
+    awk -v w="worktree $dir" '$0==w{f=1;next} /^worktree /{f=0} f && /^locked/{found=1} END{exit !found}'; then
+    die "$dir is locked (git worktree unlock it first)"
+  fi
+
+  for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
+    if [ -L "$dir/$f" ]; then rm "$dir/$f"; fi
+  done
+  # Instead of `git worktree remove`: node_modules can be 100k+ files, and
+  # interrupting that slow, silent delete leaves a half-deleted, still-registered
+  # worktree. mv is instant; prune unregisters it; the delete runs in background.
+  local trash
+  trash="$root/.wt-trash"
+  mkdir -p "$trash"
+  mv "$dir" "$trash/$$-$(basename "$dir")"
+  git -C "$main" worktree prune
+  nohup sh -c 'rm -rf "$1"/*' _ "$trash" >/dev/null 2>&1 &
+  echo "wt: removed $dir${b:+; branch $b kept (git branch -d $b to delete)}"
+
+  # last: if we're running inside this session, killing it ends us too
+  if [ -n "$name" ]; then
+    if [ -n "${TMUX:-}" ] && [ "$(tmux display-message -p '#S')" = "$name" ]; then
+      tmux switch-client -t "=$(session_for "$main")" 2>/dev/null || tmux switch-client -l 2>/dev/null || true
+    fi
+    tmux kill-session -t "=$name"
+  fi
+}
+
+case "${1:-}" in
+  "" | -h | --help) usage ;;
+  pick) shift; cmd_pick "$@" ;;
+  close) cmd_close ;;
+  ls) cmd_ls ;;
+  rm) shift; cmd_rm "$@" ;;
+  *) cmd_open "$@" ;;
+esac

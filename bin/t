@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# t [name]: attach/switch to a tmux session for the current dir (default name:
+# folder, minus a leading dot; . and : -> _), creating it if needed.
+set -euo pipefail
+name="${1:-$(basename "$PWD")}"
+name="${name#.}"
+name="${name//[.:]/_}"
+if [ -n "${TMUX:-}" ]; then
+  tmux has-session -t "=$name" 2>/dev/null || tmux new -d -s "$name" -c "$PWD"
+  tmux switch-client -t "=$name"
+else
+  exec tmux new -A -s "$name" -c "$PWD"
+fi
