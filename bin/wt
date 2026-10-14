@@ -28,7 +28,8 @@ usage:
   wt [-d] [--no-dev] [-n <name>] [--from <ref>] <branch>
         open <branch> in its own worktree + tmux session. Reuses the worktree
         that has it checked out; else checks out the local or $WT_REMOTE branch;
-        else creates <branch> from the current branch (or --from <ref>).
+        else creates <branch> from the current branch (or --from <ref>;
+        a $WT_REMOTE/... ref is fetched first).
         -d: leave the session detached (don't switch/attach)
         -n: name for a new session (default: branch)
         New sessions get a $WT_GIT_UI window, if set and installed.
@@ -39,7 +40,8 @@ usage:
         --no-dev: install only
   wt pick
         fzf branch picker. enter: open match (or typed name if no match),
-        alt-enter: create typed name as a new branch. Then asks for a session
+        alt-enter: create typed name as a new branch, alt-o: same, but from
+        $WT_REMOTE's default branch (fetched first). Then asks for a session
         name if the worktree has no session yet (enter keeps the default)
   wt close
         confirm, then wt rm the worktree you're in (for tmux prefix+X)
@@ -87,6 +89,11 @@ wt_dir() { printf '%s/%s%s%s' "$root" "$repo" "$WT_SEP" "${1//\//-}"; }
 
 current_branch() { git -C "$here" symbolic-ref --quiet --short HEAD || echo HEAD; }
 
+# <remote>/<default branch>, e.g. origin/main
+remote_default() {
+  git -C "$main" symbolic-ref --quiet --short "refs/remotes/$WT_REMOTE/HEAD" 2>/dev/null || echo "$WT_REMOTE/main"
+}
+
 # Path of the worktree that has <branch> checked out, if any.
 checked_out_at() {
   git -C "$main" worktree list --porcelain |
@@ -104,6 +111,10 @@ create() {
   else
     [ -n "$base" ] || base="$(current_branch)"
     [ "$base" = HEAD ] && base="$(git -C "$here" rev-parse --short HEAD)"
+    if [[ "$base" == "$WT_REMOTE/"* ]]; then
+      git -C "$main" fetch --quiet "$WT_REMOTE" "${base#"$WT_REMOTE/"}" ||
+        echo "wt: fetch failed; using local $base"
+    fi
     echo "wt: new branch $branch from $base"
     git -C "$main" worktree add --no-track -b "$branch" "$dir" "$base"
   fi
@@ -239,18 +250,23 @@ cmd_open() {
 cmd_pick() {
   load_repo
   command -v fzf >/dev/null || die "fzf not installed"
-  local branch
-  branch="$(
+  local out branch from="" remote
+  remote="$(remote_default)"
+  out="$(
     {
       git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads
       git for-each-ref --sort=-committerdate --format='%(refname:lstrip=3)' "refs/remotes/$WT_REMOTE"
     } | grep -vx HEAD | awk '!seen[$0]++' |
-      fzf --prompt='branch> ' --header="alt-enter: new branch from $(current_branch)" \
-        --bind 'enter:accept-or-print-query,alt-enter:print-query'
+      fzf --prompt='branch> ' \
+        --header="alt-enter: new branch from $(current_branch)"$'\n'"alt-o: new branch from $remote" \
+        --bind 'enter:accept-or-print-query,alt-enter:print-query,alt-o:become(echo :remote {q})'
   )" || exit 0
+  # alt-o prints ":remote <query>"
+  case "$out" in ":remote "*) from="$remote"; out="${out#:remote }" ;; esac
+  branch="$out"
   [ -n "$branch" ] || exit 0
   # separate process so set -e still applies; pause so errors stay visible in a popup
-  "$0" --ask-name "$branch" || { pause; exit 1; }
+  "$0" --ask-name ${from:+--from "$from"} "$branch" || { pause; exit 1; }
 }
 
 cmd_close() {
