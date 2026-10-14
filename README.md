@@ -5,10 +5,11 @@ tmux config plus `wt` (one git worktree and tmux session per branch) and `t`
 
 ## Install
 
+Needs tmux, git and fzf (macOS: `brew install tmux fzf`). Clone anywhere:
+
 ```sh
-brew install tmux fzf
-git clone https://github.com/rokbar/tmux-kit ~/Projects/tmux-kit
-~/Projects/tmux-kit/install.sh
+git clone https://github.com/rokbar/tmux-kit
+tmux-kit/install.sh
 ```
 
 `install.sh` symlinks `~/.tmux.conf`, `~/.local/bin/wt` and `~/.local/bin/t`
@@ -26,6 +27,9 @@ Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 | `prefix s` | sessions, most recently used first |
 | `prefix e` | open the git root in your editor (`code`, or `$TMUX_KIT_EDITOR`) |
 | `prefix C-s` / `C-r` | save / restore sessions (also auto-saved every 15 min and restored on start) |
+
+On macOS, `alt` keys need your terminal to send Option as Alt/Meta (e.g.
+Ghostty `macos-option-as-alt = left`, iTerm2 "Left Option key: Esc+").
 
 To use a different editor for `prefix e`, put
 `set-environment -g TMUX_KIT_EDITOR cursor` in `~/.tmux.local.conf`.
