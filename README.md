@@ -6,7 +6,7 @@ tmux config plus `wt` (one git worktree and tmux session per branch) and `t`
 ## Install
 
 ```sh
-brew install tmux fzf lazygit   # lazygit is optional
+brew install tmux fzf
 git clone https://github.com/rokbar/tmux-kit ~/Projects/tmux-kit
 ~/Projects/tmux-kit/install.sh
 ```

@@ -10,7 +10,7 @@ set -euo pipefail
 WT_ROOT=""          # dir for worktrees; empty: next to the main clone
 WT_SEP="--"         # worktree dir = <repo><WT_SEP><slug>
 WT_REMOTE="origin"  # remote to check out existing branches from
-WT_GIT_UI="lazygit" # command for an extra window in new sessions; empty: none
+WT_GIT_UI=""        # command for an extra window in new sessions (e.g. lazygit); empty: none
 WT_DEV_SCRIPT="dev" # package.json script started in a "dev" window; empty: never
 WT_PORT_START=3000  # first port tried for the dev server (passed as $PORT)
 # copied from the invoking worktree into new ones (if missing there)
@@ -31,7 +31,7 @@ usage:
         else creates <branch> from the current branch (or --from <ref>).
         -d: leave the session detached (don't switch/attach)
         -n: name for a new session (default: branch)
-        New sessions get a $WT_GIT_UI window (if installed).
+        New sessions get a $WT_GIT_UI window, if set and installed.
         New worktrees run the deps install; if package.json has a
         $WT_DEV_SCRIPT script, install + `PORT=<port> <pm> run <script>` run in
         a "dev" window, port = first free from $WT_PORT_START not claimed by

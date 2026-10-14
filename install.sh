@@ -29,7 +29,7 @@ for p in tpm tmux-resurrect tmux-continuum; do
 done
 
 missing=""
-for cmd in tmux git fzf lazygit; do command -v "$cmd" >/dev/null || missing+=" $cmd"; done
+for cmd in tmux git fzf; do command -v "$cmd" >/dev/null || missing+=" $cmd"; done
 if [ -n "$missing" ]; then echo "missing:$missing (brew install$missing)"; fi
 case ":$PATH:" in *":$bin:"*) ;; *) echo "add $bin to PATH" ;; esac
 if [ -n "${TMUX:-}" ]; then tmux source-file "$HOME/.tmux.conf" && echo "reloaded tmux config"; fi
