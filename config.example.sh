@@ -9,14 +9,14 @@
 # WT_PORT_START=3000  # first dev server port tried
 
 # Copied from the worktree you run wt in (gitignored local files):
-# WT_COPY_FILES=(.env .env.local .env.development.local .devurl .mcp.json)
+# WT_COPY_FILES=(.env .env.local .env.development.local .devurl)
 
-# Symlinked to the main clone, so every worktree shares one copy:
-# WT_LINK_FILES=(CLAUDE.local.md .claude/settings.local.json)
+# Symlinked to the main clone, so every worktree shares one copy (default: none):
+# WT_LINK_FILES=(.notes .vscode/settings.json)
 
 # Runs in each new worktree before linking; e.g. make sure shared files exist
 # in the main clone so they always get linked:
 # wt_before_link() {
 #   local main="$1" dir="$2"
-#   mkdir -p "$main/.scratch"
+#   mkdir -p "$main/.notes"
 # }
