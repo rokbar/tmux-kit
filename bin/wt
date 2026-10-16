@@ -26,35 +26,26 @@ if [ -f "$WT_CONFIG" ]; then . "$WT_CONFIG"; fi
 usage() {
   cat <<'EOF'
 usage:
-  wt [-d] [--no-dev] [-n <name>] [--from <ref>] <branch>
-        open <branch> in its own worktree + tmux session. Reuses the worktree
-        that has it checked out; else checks out the local or $WT_REMOTE branch;
-        else creates <branch> from the current branch (or --from <ref>;
-        a $WT_REMOTE/... ref is fetched first).
-        -d: leave the session detached (don't switch/attach)
-        -n: name for a new session (default: branch)
-        New sessions get a $WT_GIT_UI window, if set and installed.
-        New worktrees run the deps install; if package.json has a
-        $WT_DEV_SCRIPT script, install + `PORT=<port> <pm> run <script>` run in
-        a "dev" window, port = first free from $WT_PORT_START not claimed by
-        a sibling's .devurl (written to the new worktree's .devurl).
-        --no-dev: install only
-  wt [pick]
-        fzf branch picker (bare wt opens it in a git repo with fzf, else
-        prints this help). enter: open match (or typed name if no match),
-        alt-enter: create typed name as a new branch, alt-o: same, but from
-        $WT_REMOTE's default branch (fetched first). Then asks for a session
-        name if the worktree has no session yet (enter keeps the default)
-  wt close
-        confirm, then wt rm the worktree you're in (for tmux prefix+X)
-  wt ls
-        list worktrees with dirty state and tmux session
-  wt rm [-f] <slug|branch|path>
-        remove worktree + kill its session. Refuses on uncommitted changes,
-        commits found on no other branch/remote, or unlinked local files.
-        -f: skip checks and force removal
+  wt [pick]                fzf branch picker (bare wt opens it in a git repo)
+  wt [options] <branch>    open <branch> in its own worktree + tmux session
+    -d                     don't switch/attach to the session
+    -n <name>              name for a new session (default: branch)
+    --from <ref>           base for a new branch (default: current branch)
+    --no-dev               install deps, but don't start the dev server
+  wt ls                    list worktrees, dirty state and tmux sessions
+  wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
+  wt close                 confirm, then wt rm the worktree you're in
+  wt -h | --help           this help
 
-config: $WT_CONFIG (default ~/.config/wt/config.sh), see the top of this script
+examples:
+  wt                             pick a branch, or type a new one
+  wt feat/x                      open feat/x, creating it if needed
+  wt --from origin/main feat/y   new branch feat/y from a fresh origin/main
+  wt ls                          what's checked out where
+  wt rm feat/x                   remove feat/x's worktree + session
+
+config: $WT_CONFIG (default ~/.config/wt/config.sh)
+details: README.md in tmux-kit (https://github.com/rokbar/tmux-kit)
 EOF
 }
 
@@ -124,10 +115,11 @@ create() {
 
 # Copy per-worktree files from the invoking worktree; link shared ones to the main clone.
 bootstrap() {
-  local dir="$1" f up target
+  local dir="$1" f up target copied="" linked=""
   for f in ${WT_COPY_FILES[@]+"${WT_COPY_FILES[@]}"}; do
-    if [ -f "$here/$f" ] && [ ! -e "$dir/$f" ]; then cp "$here/$f" "$dir/$f"; fi
+    if [ -f "$here/$f" ] && [ ! -e "$dir/$f" ]; then cp "$here/$f" "$dir/$f"; copied+=", $f"; fi
   done
+  if [ -n "$copied" ]; then echo "wt: copied ${copied#, }"; fi
   if declare -F wt_before_link >/dev/null; then wt_before_link "$main" "$dir"; fi
   for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
     if [ -e "$main/$f" ] && [ ! -e "$dir/$f" ] && [ ! -L "$dir/$f" ]; then
@@ -141,8 +133,10 @@ bootstrap() {
       fi
       mkdir -p "$(dirname "$dir/$f")"
       ln -s "$target" "$dir/$f"
+      linked+=", $f"
     fi
   done
+  if [ -n "$linked" ]; then echo "wt: linked ${linked#, }"; fi
 }
 
 # pnpm/bun/yarn/npm, from the lockfile; empty if not a JS project.
@@ -184,7 +178,7 @@ git_exclude() {
 }
 
 open_session() {
-  local dir="$1" fresh="$2" detach="$3" name="$4" ask="$5" branch="$6" dev="$7" def pm port
+  local dir="$1" fresh="$2" detach="$3" name="$4" ask="$5" branch="$6" dev="$7" def pm port win
   def="$(session_for "$dir")"
   if [ -n "$def" ]; then
     name="$def"
@@ -199,7 +193,8 @@ open_session() {
       echo "wt: tmux session $name already exists"
       name=""
     done
-    tmux new-session -d -s "$name" -c "$dir"
+    # first window's index, for the install line (base-index: tmux 0, tmux-kit 1)
+    win="$(tmux new-session -d -P -F '#{window_index}' -s "$name" -c "$dir")"
     if [ -n "$WT_GIT_UI" ] && command -v "${WT_GIT_UI%% *}" >/dev/null; then
       tmux new-window -d -t "=$name:" -n "${WT_GIT_UI%% *}" -c "$dir"
       tmux send-keys -t "=$name:${WT_GIT_UI%% *}" "$WT_GIT_UI" Enter
@@ -214,9 +209,11 @@ open_session() {
         git_exclude "$dir" .devurl
         tmux new-window -d -t "=$name:" -n dev -c "$dir"
         tmux send-keys -t "=$name:dev" "$pm install && PORT=$port $pm run $WT_DEV_SCRIPT" Enter
+        echo "wt: running $pm install (window dev)"
         echo "wt: dev server on http://localhost:$port (window dev)"
       else
-        tmux send-keys -t "=$name:" "$pm install" Enter
+        tmux send-keys -t "=$name:$win" "$pm install" Enter
+        echo "wt: running $pm install (window $win)"
       fi
     fi
   fi

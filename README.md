@@ -37,12 +37,33 @@ To use a different editor for `prefix e`, put
 ## Commands
 
 - `t [name]`: attach to or switch to a session for the current folder.
-- `wt <branch>`: open the branch in `../<repo>--<branch>` with its own session.
-  It reuses an existing worktree, checks out the local or remote branch, or
-  creates a new one. New worktrees get your `.env*` files copied in, the deps
-  installed, and, if `package.json` has a `dev` script, a dev server on a free
-  port in a `dev` window.
-- `wt ls`, `wt rm <branch>`, `wt --help`.
+- `wt` (or `wt pick`, or `prefix W`): fzf branch picker. Bare `wt` opens it in
+  a git repo with fzf installed, else prints help. `enter` opens the match, or
+  creates the typed name if nothing matches; `alt-enter` creates the typed name
+  from the current branch, `alt-o` from the remote's default branch (fetched
+  first). If the worktree has no session yet, it asks for a session name
+  (`enter` keeps the default).
+- `wt <branch>`: open the branch in `../<repo>--<branch>` (`/` becomes `-`)
+  with its own session. It reuses the worktree that has the branch checked out,
+  else checks out the local or remote branch, else creates it from the current
+  branch. `--from <ref>` instead creates a new branch from `<ref>` (a remote
+  ref like `origin/main` is fetched first). `-d` stays detached; `-n <name>`
+  names a new session.
+  New worktrees get your env files (by default `.env`, `.env.local`,
+  `.env.development.local`) copied from the worktree you run wt in, and shared
+  files linked. With a lockfile, wt installs the deps (pnpm, bun, yarn or
+  npm); if `package.json` also has a `dev` script, the install and
+  `PORT=<port> <pm> run dev` run in a `dev` window, on the first free port
+  from 3000 that no other worktree claims in its `.devurl` (wt writes the new
+  worktree's). `--no-dev` installs only. New sessions also get a git UI
+  window, if configured and installed. wt prints each step.
+- `wt ls`: list worktrees with dirty state and tmux session.
+- `wt rm [-f] <branch|slug|path>`: remove the worktree and kill its session;
+  the branch is kept. Refuses on uncommitted changes, commits on no other
+  branch or remote, or shared files that became real files instead of links.
+  `-f` skips these checks.
+- `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in.
+- `wt --help`: one line per command, plus examples.
 
 ## Config
 
