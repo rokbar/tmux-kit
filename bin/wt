@@ -39,8 +39,9 @@ usage:
         a "dev" window, port = first free from $WT_PORT_START not claimed by
         a sibling's .devurl (written to the new worktree's .devurl).
         --no-dev: install only
-  wt pick
-        fzf branch picker. enter: open match (or typed name if no match),
+  wt [pick]
+        fzf branch picker (bare wt opens it in a git repo with fzf, else
+        prints this help). enter: open match (or typed name if no match),
         alt-enter: create typed name as a new branch, alt-o: same, but from
         $WT_REMOTE's default branch (fetched first). Then asks for a session
         name if the worktree has no session yet (enter keeps the default)
@@ -261,6 +262,9 @@ cmd_open() {
   open_session "$dir" "$fresh" "$detach" "$name" "$ask" "$branch" "$dev"
 }
 
+# bare wt opens the picker, but only where it can run; elsewhere it's help
+can_pick() { git rev-parse --show-toplevel >/dev/null 2>&1 && command -v fzf >/dev/null; }
+
 cmd_pick() {
   load_repo
   command -v fzf >/dev/null || die "fzf not installed"
@@ -385,7 +389,8 @@ cmd_rm() {
 }
 
 case "${1:-}" in
-  "" | -h | --help) usage ;;
+  "") if can_pick; then cmd_pick; else usage; fi ;;
+  -h | --help) usage ;;
   pick) shift; cmd_pick "$@" ;;
   close) cmd_close ;;
   ls) cmd_ls ;;
