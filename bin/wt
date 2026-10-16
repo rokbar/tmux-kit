@@ -169,6 +169,18 @@ free_port() {
   echo "$p"
 }
 
+# Hide <file> from git in every worktree (shared info/exclude, once), for repos
+# that don't gitignore it: else it can get committed and wt rm sees it as work.
+git_exclude() {
+  local dir="$1" file="$2" ex
+  ex="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  if grep -qxF "$file" "$ex" 2>/dev/null; then return; fi
+  mkdir -p "${ex%/*}"
+  # don't glue onto a last line that lacks its newline
+  if [ -n "$(tail -c1 "$ex" 2>/dev/null)" ]; then echo >>"$ex"; fi
+  echo "$file" >>"$ex"
+}
+
 open_session() {
   local dir="$1" fresh="$2" detach="$3" name="$4" ask="$5" branch="$6" dev="$7" def pm port
   def="$(session_for "$dir")"
@@ -197,6 +209,7 @@ open_session() {
         # this worktree owns (for later wt runs and any tool that reads it)
         port="$(free_port)"
         echo "http://localhost:$port" >"$dir/.devurl"
+        git_exclude "$dir" .devurl
         tmux new-window -d -t "=$name:" -n dev -c "$dir"
         tmux send-keys -t "=$name:dev" "$pm install && PORT=$port $pm run $WT_DEV_SCRIPT" Enter
         echo "wt: dev server on http://localhost:$port (window dev)"
