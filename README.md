@@ -16,6 +16,12 @@ tmux-kit/install.sh
 into the clone (existing files go to `*.bak`) and clones the tmux plugins.
 Update with `git pull`. `~/.local/bin` must be on `PATH`.
 
+Optional: `tmux-kit/install.sh --wtui` also installs wtui, a worktree dashboard
+on `prefix w`. It downloads the latest release for your OS and CPU to
+`~/.local/bin/wtui` and checks its checksum; re-run it to update. Or build it
+from the main branch with Go:
+`GOBIN="$HOME/.local/bin" go install github.com/rokbar/tmux-kit/wtui@latest`.
+
 Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 
 ## Keys (prefix = C-b)
@@ -24,6 +30,7 @@ Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 | --- | --- |
 | `prefix W` | fzf branch picker → worktree + session (`alt-enter`: new branch, `alt-o`: new branch from origin's default branch) |
 | `prefix X` | remove the worktree you're in (asks first, refuses on unsaved work) |
+| `prefix w` | wtui, the worktree dashboard (only with wtui installed; `prefix s` covers tmux's window list) |
 | `prefix s` | sessions, most recently used first |
 | `prefix e` | open the git root in your editor (`code`, or `$TMUX_KIT_EDITOR`) |
 | `prefix C-s` / `C-r` | save / restore sessions (also auto-saved every 15 min and restored on start) |
