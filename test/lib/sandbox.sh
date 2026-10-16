@@ -10,7 +10,8 @@ tmp="$(cd "$tmp" && pwd -P)"
 # Isolation, before the trap so cleanup can only reach the private tmux server.
 # HOME too: keeps out the user's tmux.conf (continuum would restore real
 # sessions), git config (signing, global ignores that may list .devurl).
-unset TMUX TMUX_PANE XDG_CONFIG_HOME GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+# FZF_DEFAULT_OPTS*: the user's fzf options would change what a real fzf matches.
+unset TMUX TMUX_PANE XDG_CONFIG_HOME GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE FZF_DEFAULT_OPTS FZF_DEFAULT_OPTS_FILE
 export TMUX_TMPDIR="$tmp" WT_CONFIG=/dev/null HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 cleanup() { tmux kill-server 2>/dev/null || true; rm -rf "$tmp"; }

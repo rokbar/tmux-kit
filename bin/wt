@@ -265,20 +265,44 @@ cmd_open() {
 # bare wt opens the picker, but only where it can run; elsewhere it's help
 can_pick() { git rev-parse --show-toplevel >/dev/null 2>&1 && command -v fzf >/dev/null; }
 
+# Picker rows, local branches then $WT_REMOTE-only ones, newest first:
+# <● if checked out in a worktree> TAB <branch> TAB <[session] if it has one> TAB <ref>.
+# One pass over worktrees and sessions (a lookup per branch is slow on big
+# remotes), matched like checked_out_at and session_for: first session per dir.
+pick_rows() {
+  {
+    git -C "$main" worktree list --porcelain |
+      awk '/^worktree /{path=substr($0,10)} /^branch refs\/heads\//{print "worktree\t" substr($0,19) "\t" path}'
+    tmux list-sessions -F 'session'$'\t''#{session_path}'$'\t''#{session_name}' 2>/dev/null || true
+    git -C "$main" for-each-ref --sort=-committerdate --format='branch%09%(refname:short)%09%(refname)' refs/heads
+    git -C "$main" for-each-ref --sort=-committerdate --format='branch%09%(refname:lstrip=3)%09%(refname)' "refs/remotes/$WT_REMOTE"
+  } | awk -F'\t' -v OFS='\t' '
+    $1 == "worktree" { wt[$2] = $3; next }
+    $1 == "session" { if (!($2 in ses)) ses[$2] = $3; next }
+    $2 == "HEAD" || seen[$2]++ { next }
+    { dir = wt[$2]; print (dir != "" ? "●" : " "), $2, (dir in ses ? "[" ses[dir] "]" : ""), $3 }'
+}
+
 cmd_pick() {
   load_repo
   command -v fzf >/dev/null || die "fzf not installed"
-  local out branch from="" remote
+  local out branch from="" remote header
   remote="$(remote_default)"
+  header="$(printf '%s\n' "enter: open (creates <query> if no match)" \
+    "alt-enter: new branch from $(current_branch)" "alt-o: new branch from $remote")"
+  # markers are display-only: fzf shows fields 1-3 but searches and prints only
+  # the branch; chunk tiebreak ranks equal scores by branch length (length would
+  # count the markers too)
   out="$(
-    {
-      git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads
-      git for-each-ref --sort=-committerdate --format='%(refname:lstrip=3)' "refs/remotes/$WT_REMOTE"
-    } | grep -vx HEAD | awk '!seen[$0]++' |
-      fzf --prompt='branch> ' \
-        --header="alt-enter: new branch from $(current_branch)"$'\n'"alt-o: new branch from $remote" \
+    pick_rows |
+      fzf --prompt='branch> ' --header="$header" --delimiter='\t' --with-nth=..3 --nth=2 \
+        --accept-nth=2 --tiebreak=chunk --tabstop=2 --preview='git log --oneline -15 {4} --' \
         --bind 'enter:accept-or-print-query,alt-enter:print-query,alt-o:become(echo :remote {q})'
-  )" || exit 0
+  )" || {
+    # 2: fzf failed, e.g. too old for these options (--accept-nth is 0.60+); else Esc
+    [ $? = 2 ] || exit 0
+    pause; exit 1
+  }
   # alt-o prints ":remote <query>"
   case "$out" in ":remote "*) from="$remote"; out="${out#:remote }" ;; esac
   branch="$out"
