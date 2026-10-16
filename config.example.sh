@@ -9,7 +9,7 @@
 # WT_PORT_START=3000  # first dev server port tried
 
 # Copied from the worktree you run wt in (gitignored local files):
-# WT_COPY_FILES=(.env .env.local .env.development.local .devurl)
+# WT_COPY_FILES=(.env .env.local .env.development.local)
 
 # Symlinked to the main clone, so every worktree shares one copy (default: none):
 # WT_LINK_FILES=(.notes .vscode/settings.json)

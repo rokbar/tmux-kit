@@ -13,8 +13,9 @@ WT_REMOTE="origin"  # remote to check out existing branches from
 WT_GIT_UI=""        # command for an extra window in new sessions (e.g. lazygit); empty: none
 WT_DEV_SCRIPT="dev" # package.json script started in a "dev" window; empty: never
 WT_PORT_START=3000  # first port tried for the dev server (passed as $PORT)
-# copied from the invoking worktree into new ones (if missing there)
-WT_COPY_FILES=(.env .env.local .env.development.local .devurl)
+# copied from the invoking worktree into new ones (if missing there). Not
+# .devurl: wt writes that only for the worktree that owns the port
+WT_COPY_FILES=(.env .env.local .env.development.local)
 # symlinked to the main clone's copy (if it exists there), so all worktrees share it
 WT_LINK_FILES=()
 # optional hook, run in a new worktree before linking: wt_before_link <main> <dir>
