@@ -10,7 +10,7 @@ set -euo pipefail
 WT_ROOT=""          # dir for worktrees; empty: next to the main clone
 WT_SEP="--"         # worktree dir = <repo><WT_SEP><slug>
 WT_REMOTE="origin"  # remote to check out existing branches from
-WT_GIT_UI=""        # command for an extra window in new sessions (e.g. lazygit); empty: none
+WT_GIT_UI=""        # git UI for wt git-ui and new sessions' window (e.g. lazygit); empty: none
 WT_DEV_SCRIPT="dev" # package.json script started in a "dev" window; empty: never
 WT_PORT_START=3000  # first port tried for the dev server (passed as $PORT)
 # copied from the invoking worktree into new ones (if missing there). Not
@@ -42,6 +42,7 @@ usage:
   wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
                            exits 3 on a safety refusal, 1 on other errors
   wt close                 confirm, then wt rm the worktree you're in
+  wt git-ui [<path>]       run WT_GIT_UI in that worktree (default: here)
   wt doctor                show config and settings, check deps and tmux keys
   wt -h | --help           this help
 
@@ -248,6 +249,9 @@ git_exclude() {
   echo "$file" >>"$ex"
 }
 
+# Whether the git UI's program, WT_GIT_UI's first word (e.g. lazygit), is installed.
+git_ui_installed() { command -v "${WT_GIT_UI%% *}" >/dev/null; }
+
 open_session() {
   local dir="$1" fresh="$2" detach="$3" name="$4" ask="$5" branch="$6" dev="$7" def pm port win
   def="$(session_for "$dir")"
@@ -268,7 +272,7 @@ open_session() {
     done
     # first window's index, for the install line (base-index: tmux 0, tmux-kit 1)
     win="$(tmux new-session -d -P -F '#{window_index}' -s "$name" -c "$dir")"
-    if [ -n "$WT_GIT_UI" ] && command -v "${WT_GIT_UI%% *}" >/dev/null; then
+    if [ -n "$WT_GIT_UI" ] && git_ui_installed; then
       tmux new-window -d -t "=$name:" -n "${WT_GIT_UI%% *}" -c "$dir"
       tmux send-keys -t "=$name:${WT_GIT_UI%% *}" "$WT_GIT_UI" Enter
     fi
@@ -399,6 +403,25 @@ cmd_close() {
   read -r -p "remove worktree $(basename "$top")? [y/N] " ans
   case "$ans" in y | Y) ;; *) exit 0 ;; esac
   "$0" rm "$top" || { pause; exit 1; }
+}
+
+# Runs the git UI in the foreground in the worktree or main clone at <path>
+# (default: the invoking worktree), for wtui's g too. wt's own errors are one
+# line on stderr and exit 1; otherwise wt exits with the git UI's status.
+cmd_git_ui() {
+  local dir
+  if [ $# -gt 1 ] || [[ "${1-}" == -* ]]; then usage >&2; exit 1; fi
+  [ -n "$WT_GIT_UI" ] || die "no git UI configured: set WT_GIT_UI in $WT_CONFIG (e.g. WT_GIT_UI=lazygit)"
+  git_ui_installed || die "git UI not installed: ${WT_GIT_UI%% *} (WT_GIT_UI in $WT_CONFIG)"
+  # $here, not .: from a folder inside a worktree, that worktree
+  if [ $# = 1 ]; then dir="$1"; else load_repo; dir="$here"; fi
+  # worktree_at needs a folder, so not a branch
+  is_path "$dir" || die "not a path: $dir (git-ui takes ./path or /path)"
+  worktree_at "$dir"
+  cd "$worktree"
+  # by sh: a new session's window types it into the user's shell instead. exec
+  # gives the git UI wt's terminal, and wt its status.
+  exec sh -c "$WT_GIT_UI"
 }
 
 # The main clone, then each worktree (git's order), as <path> US <branch, empty
@@ -603,6 +626,7 @@ case "${1:-}" in
   -h | --help) usage ;;
   pick) shift; cmd_pick "$@" ;;
   close) cmd_close ;;
+  git-ui) shift; cmd_git_ui "$@" ;;
   doctor) cmd_doctor ;;
   ls) shift; cmd_ls "$@" ;;
   rm)

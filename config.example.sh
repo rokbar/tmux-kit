@@ -4,7 +4,7 @@
 # WT_ROOT=""          # dir for worktrees; empty: next to the main clone
 # WT_SEP="--"         # worktree dir = <repo><WT_SEP><slug>
 # WT_REMOTE="origin"  # remote to check out existing branches from
-# WT_GIT_UI=""        # extra window in new sessions, e.g. "lazygit", "gitui", "tig"
+# WT_GIT_UI=""        # e.g. "lazygit", "gitui", "tig": wt git-ui, and a window in new sessions
 # WT_DEV_SCRIPT="dev" # package.json script for the "dev" window; "" disables
 # WT_PORT_START=3000  # first dev server port tried
 

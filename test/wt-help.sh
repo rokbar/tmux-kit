@@ -10,7 +10,7 @@ n="$(grep -c '' <<<"$help")"
 [ "$n" -le 30 ] || fail "wt --help is $n lines, want <= 30"
 
 commands="$(sed '/^examples:/,$d' <<<"$help")"
-for c in pick ls rm close doctor; do
+for c in pick ls rm close git-ui doctor; do
   grep -qE "^  wt \[?$c\]?( |\$)" <<<"$commands" || fail "no line for wt $c: $help"
 done
 # scripts read --porcelain, so its stability rule is part of the help
@@ -24,6 +24,9 @@ grep -qE '^  wt \[-d\] \[-n <name>\] <path> .*existing worktree' <<<"$commands" 
 rm_help="$(sed -n '/^  wt rm /,/^  wt [a-z]/p' <<<"$commands")"
 grep -qE '(^|[^0-9])3[^0-9].*safety refusal' <<<"$rm_help" || fail "no exit 3 for a safety refusal under wt rm: $help"
 grep -qE '(^|[^0-9])1[^0-9].*other' <<<"$rm_help" || fail "no exit 1 for other failures under wt rm: $help"
+# wtui runs wt git-ui <path>; the line names the setting it runs
+grep -qE '^  wt git-ui \[<path>\] .*WT_GIT_UI' <<<"$commands" ||
+  fail "no line for wt git-ui [<path>] naming WT_GIT_UI: $help"
 for o in -d -n --from --no-dev -f; do
   grep -qE "(^| |\[)$o( |\]|\$)" <<<"$commands" || fail "option $o not in help: $help"
 done

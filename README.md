@@ -102,6 +102,14 @@ To use a different editor for `prefix e`, put
   overrides), so a script can offer to force; `1` for any other failure (not a
   worktree, the main clone, locked, usage).
 - `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in.
+- `wt git-ui [<path>]`: run your git UI (`WT_GIT_UI` in the config, e.g.
+  `lazygit`) in the worktree or main clone at `<path>`, by default the
+  worktree you're in. It runs in that folder in the foreground, as a shell
+  command (`sh -c`), and wt exits with its status. wt exits 1, saying why, if
+  no git UI is configured, its program isn't installed, or `<path>` isn't the
+  folder of a present worktree or the main clone. `git-ui` is a command name,
+  like `ls` or `rm`, so a branch called `git-ui` that has a worktree opens by
+  its path: `wt ./<path>` (e.g. `wt ../<repo>--git-ui`).
 - `wt doctor`: shows the config file wt loaded, the settings in effect (and
   whether `wt_before_link` is defined) and, in a repo, the worktree root. Checks
   tmux, git, fzf and lsof, `wt` on `PATH` and, inside tmux, that `prefix W` /
