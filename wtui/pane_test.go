@@ -92,7 +92,7 @@ commits:
   1a2b3c4 work
   5d6e7f8 init
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -206,7 +206,7 @@ func TestMissingWorktreeReadsNothingAndShowsAnEmptyPane(t *testing.T) {
   demo--feat         feat  dirty    api         http://localhost:4100
 > demo--gone               missing  gone
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -228,7 +228,7 @@ func TestPaneShowsWhyGitCouldNotRead(t *testing.T) {
 func TestLongGitMessageIsCutToThePanesRoom(t *testing.T) {
 	r := &fakeReader{err: errors.New("git status: fatal: one\nhint: two\nhint: three\nhint: four")}
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 9})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 110, Height: 9})
 	want := "http://localhost:4100\n\ngit status: fatal: one\nhint: two\n\n↑/↓ j/k: move"
 	if view := m.View().Content; !strings.Contains(view, want) || strings.Count(view, "\n") != 9 {
 		t.Errorf("view doesn't show the first 2 lines of git's message in 9 lines:\n%s", view)
@@ -351,8 +351,8 @@ commits:
   0000001 commit 1, whose subject goes on and on and on and on and on and on an…
   … 8 more
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh
-q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI
+r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -441,7 +441,7 @@ func TestKeysStayAtTheBottom(t *testing.T) {
 func TestPaneShrinksToTheRoomTheListLeaves(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 9})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 110, Height: 9})
 	want := `/p/demo
 
   demo (main clone)  main  clean  no session
@@ -450,18 +450,18 @@ func TestPaneShrinksToTheRoomTheListLeaves(t *testing.T) {
 2 ahead, 1 behind origin/feat
 changes: … 2 more
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
 	}
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 6})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 110, Height: 6})
 	want = `/p/demo
 
   demo (main clone)  main  clean  no session
 > demo--feat         feat  dirty  api         http://localhost:4100
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view with no room for the pane:\n%s\nwant:\n%s", view, want)
@@ -476,7 +476,7 @@ func TestKeyLineBreaksBetweenKeysInANarrowWindow(t *testing.T) {
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 64, Height: 16})
 	view := m.View().Content
-	keys := "↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL\nr: refresh   q/esc: quit\n"
+	keys := "↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL\ng: git UI   r: refresh   q/esc: quit\n"
 	if !strings.HasSuffix(view, "\n\n"+keys) {
 		t.Errorf("view doesn't end with the keys on two lines:\n%s", view)
 	}
@@ -485,8 +485,8 @@ func TestKeyLineBreaksBetweenKeysInANarrowWindow(t *testing.T) {
 		t.Errorf("view is %d lines, want the window's 16:\n%s", lines, view)
 	}
 	// exactly as wide as the keys: one line
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 91, Height: 16})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 103, Height: 16})
 	if view := m.View().Content; !strings.HasSuffix(view, "\n\n"+wideKeyLine) {
-		t.Errorf("view at 91 columns doesn't end with the keys on one line:\n%s", view)
+		t.Errorf("view at 103 columns doesn't end with the keys on one line:\n%s", view)
 	}
 }

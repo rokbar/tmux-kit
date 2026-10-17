@@ -19,6 +19,7 @@ type wtClient interface {
 	Open(dir, path string) error
 	Remove(dir, path string, force bool) (string, error)
 	Pick(dir string, done tea.ExecCallback) tea.Cmd
+	GitUI(dir, path string, done tea.ExecCallback) tea.Cmd
 }
 
 // repo is one repo's worktrees.
@@ -138,6 +139,19 @@ func (m model) reload() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// resumeAfter is wtui back on the list once a program it paused for (the
+// picker, the git UI) has exited, having failed (err) or not. It lists
+// again, since the program may have changed what wt lists. The status line
+// says what went wrong, or is cleared: what was there was about something
+// before it.
+func (m model) resumeAfter(err error) (model, tea.Cmd) {
+	m.status = ""
+	if err != nil {
+		m.status = err.Error()
+	}
+	return m, m.reload()
+}
+
 // list has wt list the worktrees of the repo it runs in at dir.
 func (m model) list(dir string) listed {
 	rows, err := m.client.List(dir)
@@ -164,6 +178,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.withRemoved(msg)
 	case picked:
 		return m.withPicked(msg)
+	case gitUIClosed:
+		return m.resumeAfter(msg.err)
 	case detailsRead:
 		return m.withDetails(msg), nil
 	case urlOpened:
@@ -191,6 +207,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "o":
 			return m.openDevURL()
+		case "g":
+			return m, m.runGitUI()
 		case "r":
 			m.status = ""
 			return m, m.reload()
@@ -453,7 +471,7 @@ func (m model) bottom() string {
 
 // listKeys is what the keys do in the list, in the order the key line shows
 // them.
-var listKeys = []string{"↑/↓ j/k: move", "enter: open", "n: picker", "x: remove", "o: dev URL", "r: refresh", "q/esc: quit"}
+var listKeys = []string{"↑/↓ j/k: move", "enter: open", "n: picker", "x: remove", "o: dev URL", "g: git UI", "r: refresh", "q/esc: quit"}
 
 // keyLine is listKeys three spaces apart, on as many lines as the window's
 // width needs, once that's known: the screen would cut off what's past its

@@ -17,7 +17,8 @@ import (
 // refusal with the text refusal if that's set and Remove doesn't force, else
 // the worktree's row and folder are gone (so wt can't run there) and wt says so.
 // Pick's command runs the picker at once, rather than pausing wtui for it:
-// whatever onPick does, then done with pickErr.
+// whatever onPick does, then done with pickErr. GitUI's runs the git UI the
+// same way: whatever onGitUI does, then done with gitUIErr.
 type fakeWt struct {
 	rows      []wt.Worktree
 	err       error
@@ -32,6 +33,9 @@ type fakeWt struct {
 	picks     []string // the folders the picker ran in
 	onPick    func()   // what the picker does while it runs, e.g. open a session
 	pickErr   error
+	gitUIs    []string // the paths the git UI ran in
+	onGitUI   func()   // what the git UI does while it runs, e.g. commit
+	gitUIErr  error
 }
 
 func (f *fakeWt) List(dir string) ([]wt.Worktree, error) {
@@ -77,6 +81,16 @@ func (f *fakeWt) Pick(dir string, done tea.ExecCallback) tea.Cmd {
 	}
 }
 
+func (f *fakeWt) GitUI(dir, path string, done tea.ExecCallback) tea.Cmd {
+	return func() tea.Msg {
+		f.gitUIs = append(f.gitUIs, path)
+		if f.onGitUI != nil {
+			f.onGitUI()
+		}
+		return done(f.gitUIErr)
+	}
+}
+
 const repoDir = "/p/demo"
 
 var (
@@ -115,7 +129,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
   demo--gone                   missing  gone
   demo--rebase       detached  dirty    no session
 
-↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   g: git UI   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)

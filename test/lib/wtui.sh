@@ -3,9 +3,9 @@
 # test/lib/sandbox.sh, which it sources: builds wtui and runs it in a pane of
 # the sandbox's private tmux server, with a tmux client showing that pane, as
 # in real use. Defines build_wtui, start_wtui, press, screen, wait_for,
-# wait_until, wtui_exited, wtui_status, client_session, client_on and
-# session_in. Keys that act on rows do nothing until wtui's list has arrived,
-# so wait_for a row before pressing them.
+# status_is, wait_until, wtui_exited, wtui_status, client_session, client_on
+# and session_in. Keys that act on rows do nothing until wtui's list has
+# arrived, so wait_for a row before pressing them.
 
 # build_wtui keeps Go's caches inside the sandbox, so it writes nothing
 # outside it. It takes wtui's modules from the user's module download cache
@@ -70,6 +70,13 @@ screen() { tmux capture-pane -p -t "$wtui_pane"; }
 # wait_for <text>: waits for wtui's pane to show <text>
 wait_for() { wait_until "wtui to show '$1'" shows "$1"; }
 shows() { case "$(screen)" in *"$1"*) ;; *) return 1 ;; esac; }
+
+# status_is <text>: whether wtui's status line, the line above its keys, is
+# <text>. awk reads to the end, so tmux never writes into a closed pipe
+# (pipefail).
+status_is() {
+  [ "$(screen | awk 'index($0, "↑/↓ j/k: move") == 1 && !done { print prev; done = 1 } { prev = $0 }')" = "$1" ]
+}
 
 # wait_until <what> <command> [<arg>...]: runs the command every 0.1 s until it
 # succeeds. After 20 s it fails the test, naming <what> and showing wtui's pane.

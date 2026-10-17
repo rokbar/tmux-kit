@@ -127,6 +127,15 @@ func (c *Client) Pick(dir string, done tea.ExecCallback) tea.Cmd {
 	return c.onTerminal(dir, done, "pick")
 }
 
+// GitUI is the user's git UI (`wt git-ui <path>`), run in the main clone or
+// worktree at path. wt runs in dir, as for List. The git UI needs the
+// terminal, so this is a command that pauses wtui while it runs, then reports
+// to done. If wt fails (e.g. no git UI is configured, or it isn't installed),
+// or the git UI exits non-zero, the error's text is what either said.
+func (c *Client) GitUI(dir, path string, done tea.ExecCallback) tea.Cmd {
+	return c.onTerminal(dir, done, "git-ui", path)
+}
+
 // onTerminal is a command that runs wt with args in dir on the terminal:
 // tea.Exec pauses wtui, gives wt the terminal, and resumes wtui once wt has
 // exited, then reports to done. If wt exits non-zero, done's error is of no

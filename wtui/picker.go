@@ -41,17 +41,12 @@ func (m model) pick() tea.Cmd {
 // withPicked takes in the picker having closed. If it worked and took the
 // tmux client to another session, it opened something there, and wtui
 // quits. Otherwise (it was cancelled, opened the session the client was
-// already on, or failed) wtui stays, and lists again: the picker may have
-// made a worktree or started a session. The status line says what wt said if
-// the picker failed, and is cleared if not: what was there was about
-// something before it.
+// already on, or failed) wtui resumes the list (resumeAfter): the picker may
+// have made a worktree or started a session, and if it failed, the status
+// line says what wt said.
 func (m model) withPicked(p picked) (model, tea.Cmd) {
 	if p.err == nil && p.moved {
 		return m, tea.Quit
 	}
-	m.status = ""
-	if p.err != nil {
-		m.status = p.err.Error()
-	}
-	return m, m.reload()
+	return m.resumeAfter(p.err)
 }

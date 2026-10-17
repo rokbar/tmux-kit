@@ -40,11 +40,6 @@ chmod +x "$tmp/stubs/fzf"
 # fields one space apart. awk reads to the end, so tmux never writes into a
 # closed pipe (pipefail).
 row() { screen | awk -v f="$1" '{ sub(/^> /, "") } $1 == f && !found { found = 1; $1 = $1; print }'; }
-# status_is <text>: whether wtui's status line, the line above its keys, is
-# <text>
-status_is() {
-  [ "$(screen | awk 'index($0, "↑/↓ j/k: move") == 1 && !done { print prev; done = 1 } { prev = $0 }')" = "$1" ]
-}
 # row_starts <folder> <fields>: whether wtui's row for <folder> starts with
 # <fields>, e.g. its branch, state and session; a dev URL's port may vary
 row_starts() { case "$(row "$1") " in "$2 "*) ;; *) return 1 ;; esac; }
