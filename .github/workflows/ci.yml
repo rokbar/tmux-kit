@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bash-tests:
+    name: bash tests (test/*.sh)
+    runs-on: ubuntu-latest
+    env:
+      # the picker needs fzf >= 0.60 (--accept-nth); distro packages are older
+      FZF_VERSION: 0.74.5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tmux and git
+        run: sudo apt-get update && sudo apt-get install -y tmux git
+
+      - name: Install fzf from its GitHub release
+        working-directory: ${{ runner.temp }}
+        run: |
+          base="https://github.com/junegunn/fzf/releases/download/v$FZF_VERSION"
+          tarball="fzf-$FZF_VERSION-linux_$(dpkg --print-architecture).tar.gz"
+          curl -fsSLO "$base/$tarball"
+          curl -fsSLO "$base/fzf_${FZF_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "fzf_${FZF_VERSION}_checksums.txt"
+          sudo tar -xzf "$tarball" -C /usr/local/bin fzf
+          fzf --version
+
+      # the whole-stack tests (test/wtui-*.sh) build wtui; without Go they skip
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: wtui/go.mod
+          cache-dependency-path: wtui/go.sum
+
+      - name: Run test/*.sh
+        run: |
+          shopt -s nullglob
+          tests=(test/*.sh)
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "no test/*.sh files, nothing to run"
+            exit 0
+          fi
+          failed=()
+          for t in "${tests[@]}"; do
+            echo "::group::$t"
+            if bash "$t"; then status=ok; else status=FAIL; failed+=("$t"); fi
+            echo "::endgroup::"
+            echo "$status $t"
+          done
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "::error::failed: ${failed[*]}"
+            exit 1
+          fi
+
+  go-test:
+    name: wtui (go test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wtui
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: wtui/go.mod
+          cache-dependency-path: wtui/go.sum
+
+      # the wt client's tests run the real bin/wt, whose sessions need tmux
+      # (without it, those tests skip)
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - run: go vet ./...
+
+      - run: go test ./...

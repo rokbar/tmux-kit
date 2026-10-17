@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # Symlink tmux-kit into $HOME and install tmux plugins. Re-run safe; existing
 # files are moved to <file>.bak. Update later with: git pull
+# --wtui also installs (or updates) wtui from the latest GitHub release into
+# ~/.local/bin/wtui; WTUI_VERSION=<tag> picks another release.
 set -euo pipefail
 kit="$(cd "$(dirname "$0")" && pwd)"
 bin="$HOME/.local/bin"
+
+with_wtui=""
+for arg in "$@"; do
+  case "$arg" in
+    --wtui) with_wtui=1 ;;
+    *) echo "unknown option: $arg (usage: install.sh [--wtui])" >&2; exit 1 ;;
+  esac
+done
 
 link() {
   local src="$1" dst="$2"
@@ -14,6 +24,47 @@ link() {
   fi
   ln -s "$src" "$dst"
   echo "linked $dst"
+}
+
+# Downloads the release's wtui_<os>_<arch> and checksums.txt into a temp folder
+# next to $bin/wtui, verifies the checksum, then moves it into place, so any
+# failure leaves the installed wtui as it was. Called as `install_wtui || …`,
+# where set -e is off, so every step checks for failure itself.
+wtui_tmp=""
+trap 'rm -rf "$wtui_tmp"' EXIT
+install_wtui() {
+  local os arch sum asset url f expected actual
+  case "$(uname -s)" in
+    Darwin) os=darwin sum=(shasum -a 256) ;;
+    Linux) os=linux sum=(sha256sum) ;;
+    *) echo "wtui: unsupported OS $(uname -s) (releases are for macOS and Linux)" >&2; return 1 ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) arch=arm64 ;;
+    x86_64 | amd64) arch=amd64 ;;
+    *) echo "wtui: unsupported CPU $(uname -m) (releases are for arm64 and x86_64)" >&2; return 1 ;;
+  esac
+  for f in curl "${sum[0]}"; do
+    command -v "$f" >/dev/null || { echo "wtui: needs $f" >&2; return 1; }
+  done
+  asset="wtui_${os}_${arch}"
+  url="https://github.com/rokbar/tmux-kit/releases"
+  if [ -n "${WTUI_VERSION:-}" ]; then url+="/download/$WTUI_VERSION"; else url+="/latest/download"; fi
+
+  wtui_tmp="$(mktemp -d "$bin/.wtui.XXXXXX")" || return 1
+  for f in "$asset" checksums.txt; do
+    curl -fsSL -o "$wtui_tmp/$f" "$url/$f" ||
+      { echo "wtui: download failed: $url/$f" >&2; return 1; }
+  done
+  expected="$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "$wtui_tmp/checksums.txt")"
+  [ -n "$expected" ] || { echo "wtui: no checksum for $asset in $url/checksums.txt" >&2; return 1; }
+  actual="$(cd "$wtui_tmp" && "${sum[@]}" "$asset" | awk '{ print $1 }')"
+  if [ "$actual" != "$expected" ]; then
+    echo "wtui: checksum mismatch for $url/$asset (expected $expected, got $actual); not installed" >&2
+    return 1
+  fi
+  chmod +x "$wtui_tmp/$asset" && mv -f "$wtui_tmp/$asset" "$bin/wtui" || return 1
+  echo "installed $bin/wtui ($("$bin/wtui" --version 2>/dev/null || echo "$asset"))"
 }
 
 mkdir -p "$bin"
@@ -32,5 +83,10 @@ missing=""
 for cmd in tmux git fzf; do command -v "$cmd" >/dev/null || missing+=" $cmd"; done
 if [ -n "$missing" ]; then echo "missing:$missing (brew install$missing)"; fi
 case ":$PATH:" in *":$bin:"*) ;; *) echo "add $bin to PATH" ;; esac
+# before the reload, so the config sees wtui and binds prefix+w; if it fails,
+# the rest still runs and install.sh exits 1
+wtui_failed=""
+if [ -n "$with_wtui" ]; then install_wtui || wtui_failed=1; fi
 if [ -n "${TMUX:-}" ]; then tmux source-file "$HOME/.tmux.conf" && echo "reloaded tmux config"; fi
+if [ -n "$wtui_failed" ]; then echo "wtui not installed" >&2; exit 1; fi
 echo "done. optional: cp $kit/config.example.sh ~/.config/wt/config.sh"

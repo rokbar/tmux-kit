@@ -16,6 +16,12 @@ tmux-kit/install.sh
 into the clone (existing files go to `*.bak`) and clones the tmux plugins.
 Update with `git pull`. `~/.local/bin` must be on `PATH`.
 
+Optional: `tmux-kit/install.sh --wtui` also installs wtui, a worktree dashboard
+on `prefix w`. It downloads the latest release for your OS and CPU to
+`~/.local/bin/wtui` and checks its checksum; re-run it to update. Or build it
+from the main branch with Go:
+`GOBIN="$HOME/.local/bin" go install github.com/rokbar/tmux-kit/wtui@latest`.
+
 Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 
 ## Keys (prefix = C-b)
@@ -24,6 +30,7 @@ Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 | --- | --- |
 | `prefix W` | fzf branch picker → worktree + session (`alt-enter`: new branch, `alt-o`: new branch from origin's default branch) |
 | `prefix X` | remove the worktree you're in (asks first, refuses on unsaved work) |
+| `prefix w` | wtui, the worktree dashboard (only with wtui installed; `prefix s` covers tmux's window list) |
 | `prefix s` | sessions, most recently used first |
 | `prefix e` | open the git root in your editor (`code`, or `$TMUX_KIT_EDITOR`) |
 | `prefix C-s` / `C-r` | save / restore sessions (also auto-saved every 15 min and restored on start) |
@@ -57,17 +64,57 @@ To use a different editor for `prefix e`, put
   from 3000 that no other worktree claims in its `.devurl` (wt writes the new
   worktree's). `--no-dev` installs only. New sessions also get a git UI
   window, if configured and installed. wt prints each step.
+- `wt <path>` (`wt [-d] [-n <name>] <path>`): open the existing worktree or
+  main clone at that path as it is, even with no branch checked out (detached,
+  or mid-rebase, which `wt <branch>` can't open). An argument starting with `/`
+  or `.` is a path (`.`, `./x`, `../<repo>--x`), never a branch; it works from
+  outside the repo too. It reuses the session started in that folder, else
+  starts one named after the branch, or after the folder if there's no branch;
+  `-d` and `-n` work as for a branch. It never creates a worktree or branch,
+  copies or links files, or starts installs or a dev server, so `--from` is an
+  error, as are a missing worktree and a path that isn't a worktree's own
+  folder (a folder inside one included).
 - `wt ls`: list worktrees with dirty state and tmux session.
+  `wt ls --porcelain` is the form for scripts: one line for the main clone,
+  then one for each worktree in git's order, with tab-separated fields:
+
+  | # | Field | Values |
+  | --- | --- | --- |
+  | 1 | path | absolute path of the worktree (or main clone) |
+  | 2 | branch | branch name; empty if detached (incl. mid-rebase) or missing |
+  | 3 | state | `clean`, `dirty` or `missing` |
+  | 4 | session | name of the session started in it, even if renamed; empty if none |
+  | 5 | dev URL | first line of its `.devurl`; empty if none |
+
+  Fields are never reordered, removed or redefined, and new ones are only added
+  at the end, so read the fields you know and ignore any after them. A breaking
+  change would need `--porcelain=v2`, leaving `--porcelain` as it is. Known
+  limitation: a tab or newline in a worktree's path breaks the format, as it
+  already breaks wt's own reading of git's worktree list.
 - `wt rm [-f] <branch|slug|path>`: remove the worktree and kill its session;
   the branch is kept. Refuses on uncommitted changes, commits on no other
   branch or remote, or shared files that became real files instead of links.
-  `-f` skips these checks.
+  `-f` skips these checks. A missing worktree (its folder deleted by hand) has
+  nothing left to check: `wt rm` unregisters just that one from git and kills
+  the session started in it, `-f` or not. A locked worktree is refused even
+  with `-f` (`git worktree unlock` it first).
+  Exit status: `3` on a safety refusal (one of the checks above, which `-f`
+  overrides), so a script can offer to force; `1` for any other failure (not a
+  worktree, the main clone, locked, usage).
 - `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in.
+- `wt git-ui [<path>]`: run your git UI (`WT_GIT_UI` in the config, e.g.
+  `lazygit`) in the worktree or main clone at `<path>`, by default the
+  worktree you're in. It runs in that folder in the foreground, as a shell
+  command (`sh -c`), and wt exits with its status. wt exits 1, saying why, if
+  no git UI is configured, its program isn't installed, or `<path>` isn't the
+  folder of a present worktree or the main clone. `git-ui` is a command name,
+  like `ls` or `rm`, so a branch called `git-ui` that has a worktree opens by
+  its path: `wt ./<path>` (e.g. `wt ../<repo>--git-ui`).
 - `wt doctor`: shows the config file wt loaded, the settings in effect (and
   whether `wt_before_link` is defined) and, in a repo, the worktree root. Checks
   tmux, git, fzf and lsof, `wt` on `PATH` and, inside tmux, that `prefix W` /
   `X` run wt. Exits non-zero if tmux, git or fzf is missing (lsof is optional).
-- `wt --help`: one line per command, plus examples.
+- `wt --help`: the commands and options in brief, plus examples.
 
 ## Config
 

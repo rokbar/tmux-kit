@@ -1,0 +1,51 @@
+name: Release
+
+# Pushing a v* tag publishes wtui's binaries (wtui_<os>_<arch>) and
+# checksums.txt on that tag's GitHub release, where install.sh --wtui gets them.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: publish wtui binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: wtui/go.mod
+          cache-dependency-path: wtui/go.sum
+
+      # CI runs alongside this workflow, not before it
+      - name: go test
+        working-directory: wtui
+        run: go test ./...
+
+      - name: Build wtui for darwin and linux on arm64 and amd64
+        run: bash wtui/build-release.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/dist"
+
+      - name: Publish to the tag's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          # v1.2.3-rc.1 and the like are pre-releases, which install.sh --wtui
+          # (releases/latest) skips
+          flags=()
+          case "$tag" in *-*) flags+=(--prerelease) ;; esac
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # re-run: replace the assets
+            gh release upload "$tag" "$RUNNER_TEMP"/dist/* --clobber
+          else
+            gh release create "$tag" "$RUNNER_TEMP"/dist/* --verify-tag --title "$tag" --generate-notes "${flags[@]}"
+          fi
