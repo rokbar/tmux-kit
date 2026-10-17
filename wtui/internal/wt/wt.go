@@ -36,10 +36,15 @@ var (
 	// ErrTooOld is a wt without the `ls --porcelain` wtui reads: the call
 	// failed, or printed a line with fewer than its 5 fields.
 	ErrTooOld = errors.New("wt too old for wtui")
+	// ErrSafetyRefusal is wt declining to remove a worktree because something
+	// would be lost (exit status 3). Unlike any other failure to remove one,
+	// forcing gets past it.
+	ErrSafetyRefusal = errors.New("wt refused to remove the worktree: something would be lost")
 )
 
-// callError is a wt call that failed as kind (e.g. ErrTooOld). Its text is
-// what wt said, or what went wrong when wt said nothing.
+// callError is a wt call that failed as kind (e.g. ErrTooOld; nil for no
+// particular kind). Its text is what wt said, or what went wrong when wt said
+// nothing.
 type callError struct {
 	kind error
 	msg  string
@@ -60,11 +65,7 @@ func New(wtuiPath string) *Client { return &Client{wtuiPath: wtuiPath} }
 // List returns the main clone, then every worktree, of the repo dir is in.
 // A wt without `ls --porcelain` is ErrTooOld, whatever it printed.
 func (c *Client) List(dir string) ([]Worktree, error) {
-	out, err := c.run(dir, "ls", "--porcelain")
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return nil, &callError{ErrTooOld, failureText(exit)}
-	}
+	out, err := c.run(dir, always(ErrTooOld), "ls", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
@@ -89,17 +90,47 @@ func (c *Client) List(dir string) ([]Worktree, error) {
 // (`wt -d <path>`). wt runs in dir, as for List. If wt fails, the error's text
 // is what it said.
 func (c *Client) Open(dir, path string) error {
-	_, err := c.run(dir, "-d", path)
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return errors.New(failureText(exit))
-	}
+	_, err := c.run(dir, noKind, "-d", path)
 	return err
 }
 
-// run runs wt with args in dir and returns its stdout. A wt that exits
-// non-zero is an *exec.ExitError holding its stderr.
-func (c *Client) run(dir string, args ...string) ([]byte, error) {
+// Remove has wt remove the worktree at path, or unregister it if it's missing,
+// and end its session (`wt rm [-f] <path>`). force skips wt's safety checks.
+// wt runs in dir, as for List. It returns what wt said it did. If wt refuses
+// because something would be lost, the error is an ErrSafetyRefusal; either
+// way, its text is what wt said.
+func (c *Client) Remove(dir, path string, force bool) (string, error) {
+	args := []string{"rm", path}
+	if force {
+		args = []string{"rm", "-f", path}
+	}
+	out, err := c.run(dir, removeKind, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// removeKind is the kind of error a `wt rm` that exited with status is: 3 is
+// a safety refusal, anything else no particular kind.
+func removeKind(status int) error {
+	if status == 3 {
+		return ErrSafetyRefusal
+	}
+	return nil
+}
+
+// always is kind, whatever wt's exit status.
+func always(kind error) func(status int) error {
+	return func(int) error { return kind }
+}
+
+// noKind is no particular kind of error, whatever wt's exit status.
+func noKind(int) error { return nil }
+
+// run runs wt with args in dir and returns its stdout. If wt exits non-zero,
+// the error's kind is kindOf(its exit status), and its text is what wt said.
+func (c *Client) run(dir string, kindOf func(status int) error, args ...string) ([]byte, error) {
 	bin, err := c.find()
 	if err != nil {
 		return nil, err
@@ -108,7 +139,12 @@ func (c *Client) run(dir string, args ...string) ([]byte, error) {
 	cmd.Dir = dir
 	// git must never stop to ask for credentials: nobody would see the prompt
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	return cmd.Output()
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return nil, &callError{kindOf(exit.ExitCode()), failureText(exit)}
+	}
+	return out, err
 }
 
 // failureText is what a wt that exited non-zero printed on stderr, or its

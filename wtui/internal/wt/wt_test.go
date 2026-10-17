@@ -295,3 +295,116 @@ func TestFailedOpenCarriesWtsMessage(t *testing.T) {
 		t.Errorf("error = %q, want wt's message %q", err, want)
 	}
 }
+
+// recordWt points WT_BIN at the real wt, wrapped so that what it prints is
+// also kept. The returned func gives what the last wt call printed on stdout
+// and on stderr, trimmed, so a test can compare the client with wt itself.
+func recordWt(t *testing.T, s *sandbox.Sandbox) func() (stdout, stderr string) {
+	t.Helper()
+	out, errOut := s.Path("wt.out"), s.Path("wt.err")
+	t.Setenv("WT_BIN", s.Script("bin/recording-wt",
+		`'`+s.Wt+`' "$@" >'`+out+`' 2>'`+errOut+`'; status=$?
+cat '`+out+`'; cat '`+errOut+`' >&2; exit $status`))
+	return func() (string, string) {
+		t.Helper()
+		read := func(p string) string {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return strings.TrimSpace(string(b))
+		}
+		return read(out), read(errOut)
+	}
+}
+
+// A removal, of a worktree or of a missing one (which wt only unregisters),
+// says what wt said it did, e.g. that it kept the branch.
+func TestRemoveCarriesWtsMessage(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	feat := s.Path("demo--feat")
+	s.Git(demo, "worktree", "add", "-q", feat, "-b", "feat")
+	gone := s.Path("demo--gone")
+	s.Git(demo, "worktree", "add", "-q", gone, "-b", "gone")
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	wtSaid := recordWt(t, s)
+
+	// gone first: removing feat prunes every missing worktree
+	for _, path := range []string{gone, feat} {
+		said, err := wt.New("").Remove(demo, path, false)
+		if err != nil {
+			t.Fatalf("Remove(%s): %v", path, err)
+		}
+		if want, _ := wtSaid(); said != want || want == "" {
+			t.Errorf("Remove(%s) said %q, want wt's message %q", path, said, want)
+		}
+	}
+	sameRows(t, list(t, demo), []wt.Worktree{
+		{Path: demo, Branch: "main", State: wt.Clean, MainClone: true},
+	})
+}
+
+// wt refusing because removing would lose work (here, uncommitted changes) is
+// a safety refusal, with wt's reasons as its text. Forcing gets past it.
+func TestDirtyWorktreeIsASafetyRefusalThatForceGetsPast(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	feat := s.Path("demo--feat")
+	s.Git(demo, "worktree", "add", "-q", feat, "-b", "feat")
+	s.Write("demo--feat/wip.txt", "wip\n")
+	wtSaid := recordWt(t, s)
+	c := wt.New("")
+
+	_, err := c.Remove(demo, feat, false)
+	if !errors.Is(err, wt.ErrSafetyRefusal) {
+		t.Fatalf("Remove(%s) = %v, want a wt.ErrSafetyRefusal", feat, err)
+	}
+	if _, want := wtSaid(); err.Error() != want || !strings.Contains(want, "wip.txt") {
+		t.Errorf("refusal = %q, want wt's reasons %q", err, want)
+	}
+	if rows := list(t, demo); len(rows) != 2 {
+		t.Errorf("after the refusal, rows = %+v, want feat still there", rows)
+	}
+
+	if _, err := c.Remove(demo, feat, true); err != nil {
+		t.Fatalf("forced Remove(%s): %v", feat, err)
+	}
+	sameRows(t, list(t, demo), []wt.Worktree{
+		{Path: demo, Branch: "main", State: wt.Clean, MainClone: true},
+	})
+}
+
+// Failures that forcing can't get past, such as the main clone or a locked
+// worktree, are not safety refusals. Their text is what wt said.
+func TestOtherRemoveFailuresAreNoSafetyRefusal(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	locked := s.Path("demo--locked")
+	s.Git(demo, "worktree", "add", "-q", locked, "-b", "locked")
+	s.Git(demo, "worktree", "lock", locked)
+	s.Write("demo--locked/wip.txt", "wip\n") // a lock comes before the safety checks
+	wtSaid := recordWt(t, s)
+	c := wt.New("")
+
+	for _, call := range []struct {
+		path  string
+		force bool
+	}{{demo, false}, {locked, false}, {locked, true}} {
+		_, err := c.Remove(demo, call.path, call.force)
+		if err == nil {
+			t.Fatalf("Remove(%s, force %v) worked, want it to fail", call.path, call.force)
+		}
+		if errors.Is(err, wt.ErrSafetyRefusal) {
+			t.Errorf("Remove(%s, force %v) = %v, a safety refusal; want another failure", call.path, call.force, err)
+		}
+		if _, want := wtSaid(); err.Error() != want || want == "" {
+			t.Errorf("Remove(%s, force %v) error = %q, want wt's message %q", call.path, call.force, err, want)
+		}
+	}
+	if rows := list(t, demo); len(rows) != 2 {
+		t.Errorf("rows = %+v, want the main clone and the locked worktree still there", rows)
+	}
+}

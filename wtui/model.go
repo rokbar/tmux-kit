@@ -17,20 +17,16 @@ import (
 type wtClient interface {
 	List(dir string) ([]wt.Worktree, error)
 	Open(dir, path string) error
+	Remove(dir, path string, force bool) (string, error)
 }
 
 // repo is one repo's worktrees.
 type repo struct {
-	dir  string        // where wt runs: the top folder of the main clone or worktree wtui was opened in
+	// where wt runs, and how the screen names the repo: the top folder of the
+	// main clone or worktree wtui was opened in, then the main clone once a
+	// list names it. wt never removes that, unlike the worktree.
+	dir  string
 	rows []wt.Worktree // as wt lists them: the main clone, then each worktree
-}
-
-// name is how the screen names the repo: its main clone's path, once listed.
-func (r repo) name() string {
-	if len(r.rows) > 0 && r.rows[0].MainClone {
-		return r.rows[0].Path
-	}
-	return r.dir
 }
 
 // mode is what wtui is showing, and so what keys do.
@@ -38,6 +34,8 @@ type mode int
 
 const (
 	listMode    mode = iota // the worktrees; keys act on the selected one
+	confirmMode             // asking whether to remove a worktree
+	refusedMode             // wt refused to remove it for safety: showing why, asking whether to force
 	messageMode             // a start-up problem, shown until a key exits wtui
 )
 
@@ -49,9 +47,30 @@ type model struct {
 	selected string // the selected row's path, so it stays put when rows move
 	loaded   bool   // a list has arrived, so wt failures go to the status line
 	width    int    // the terminal's width; 0 until it's known
+	height   int    // the terminal's height; 0 until it's known
 	message  string // messageMode's text
-	status   string // the status line: what last went wrong, until r
+	status   string // the status line: what wt said last, or what went wrong, until r
 	handoff  string // the session to take the terminal to once wtui has quit
+	// what confirmMode and refusedMode ask about
+	removing removal
+}
+
+// removal is the worktree a prompt asks about removing, and its repo's folder.
+type removal struct {
+	dir      string
+	worktree wt.Worktree
+	refusal  string // why wt refused to remove it, once it has
+	top      int    // the first line of refusal on screen, when it doesn't all fit
+}
+
+// question is the prompt asking whether to remove the worktree: it names the
+// worktree, and the session that would end with it.
+func (r removal) question() string {
+	name := filepath.Base(r.worktree.Path)
+	if r.worktree.Session == "" {
+		return "remove " + name + " (no session)?"
+	}
+	return "remove " + name + " and end session " + r.worktree.Session + "?"
 }
 
 // listed is a list of one repo's worktrees from wt.
@@ -67,6 +86,15 @@ type opened struct {
 	path string
 	err  error
 	list listed
+}
+
+// removed is wt having removed a worktree, which it said, or failed to (err),
+// and the list of its repo that followed.
+type removed struct {
+	removal removal
+	said    string
+	err     error
+	list    listed
 }
 
 // newModel is wtui on the repo whose top folder is repoDir, as findRepo
@@ -99,17 +127,20 @@ func (m model) Init() tea.Cmd {
 func (m model) reload() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, r := range m.repos {
-		cmds = append(cmds, func() tea.Msg {
-			rows, err := m.client.List(r.dir)
-			return listed{dir: r.dir, rows: rows, err: err}
-		})
+		cmds = append(cmds, func() tea.Msg { return m.list(r.dir) })
 	}
 	return tea.Batch(cmds...)
 }
 
+// list has wt list the worktrees of the repo it runs in at dir.
+func (m model) list(dir string) listed {
+	rows, err := m.client.List(dir)
+	return listed{dir: dir, rows: rows, err: err}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = size.Width
+		m.width, m.height = size.Width, size.Height
 		return m, nil
 	}
 	if m.mode == messageMode {
@@ -123,7 +154,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.withList(msg), nil
 	case opened:
 		return m.withOpened(msg)
+	case removed:
+		return m.withRemoved(msg), nil
 	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" { // raw mode turns ctrl+c into a key, not SIGINT
+			return m, tea.Quit
+		}
+		if m.mode == confirmMode || m.mode == refusedMode {
+			return m.answer(msg.String())
+		}
 		switch msg.String() {
 		case "up", "k":
 			m = m.move(-1)
@@ -131,10 +170,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.move(1)
 		case "enter":
 			return m, m.open()
+		case "x":
+			// wt never removes the main clone
+			if r, w, ok := m.selection(); ok && !w.MainClone {
+				m.mode, m.removing = confirmMode, removal{dir: r.dir, worktree: w}
+			}
 		case "r":
 			m.status = ""
 			return m, m.reload()
-		case "q", "esc", "ctrl+c": // raw mode turns ctrl+c into a key, not SIGINT
+		case "q", "esc":
 			return m, tea.Quit
 		}
 	}
@@ -156,6 +200,9 @@ func (m model) withList(l listed) model {
 	for i := range m.repos {
 		if m.repos[i].dir == l.dir {
 			m.repos[i].rows = l.rows
+			if len(l.rows) > 0 && l.rows[0].MainClone {
+				m.repos[i].dir = l.rows[0].Path
+			}
 		}
 	}
 	if rows := m.rows(); len(rows) > 0 && m.selectedIndex() < 0 {
@@ -186,6 +233,82 @@ func (m model) withOpened(o opened) (model, tea.Cmd) {
 	return m, tea.Quit
 }
 
+// answer is a key pressed at a prompt: y removes the worktree it asks about,
+// forcing it once wt has refused to for safety; n, q and esc cancel. Either
+// way, it's back to the list. Up and down scroll wt's reasons for refusing.
+func (m model) answer(key string) (model, tea.Cmd) {
+	switch key {
+	case "y":
+		force := m.mode == refusedMode
+		m.mode = listMode
+		return m, m.remove(force)
+	case "n", "q", "esc":
+		m.mode = listMode
+	case "up", "k":
+		m = m.scroll(-1)
+	case "down", "j":
+		m = m.scroll(1)
+	}
+	return m, nil
+}
+
+// forcePrompt is the question under wt's reasons for refusing, and its keys.
+const forcePrompt = "force?\ny: force   n/q/esc: cancel"
+
+// reasons is wt's reasons for refusing, wrapped to the window, and how many
+// of their lines fit on screen above a blank line and the prompt: all of
+// them, or, if they don't all fit, one less than that, for a line saying
+// which are shown.
+func (m model) reasons() (lines []string, fit int) {
+	lines = strings.Split(m.wrap(m.removing.refusal), "\n")
+	room := m.height - strings.Count(m.wrap(forcePrompt), "\n") - 2
+	if m.height <= 0 || len(lines) <= room {
+		return lines, len(lines)
+	}
+	return lines, max(room-1, 1)
+}
+
+// scroll moves which of wt's reasons for refusing are on screen by lines,
+// within them.
+func (m model) scroll(by int) model {
+	lines, fit := m.reasons()
+	m.removing.top = max(0, min(len(lines)-fit, m.removing.top+by))
+	return m
+}
+
+// remove has wt remove the worktree the prompt asked about, then lists its
+// repo again, whether or not that worked.
+func (m model) remove(force bool) tea.Cmd {
+	r := m.removing
+	return func() tea.Msg {
+		said, err := m.client.Remove(r.dir, r.worktree.Path, force)
+		return removed{removal: r, said: said, err: err, list: m.list(r.dir)}
+	}
+}
+
+// withRemoved takes in the list that followed a removal. The status line says
+// what wt said, that it removed the worktree or why it couldn't, then why the
+// list failed, if it did. If wt refused because something would be lost, its
+// reasons get a screen of their own instead, which asks whether to force.
+func (m model) withRemoved(r removed) model {
+	m = m.withList(r.list)
+	var status []string
+	switch {
+	case errors.Is(r.err, wt.ErrSafetyRefusal):
+		m.mode, m.removing = refusedMode, r.removal
+		m.removing.refusal = r.err.Error()
+	case r.err != nil:
+		status = append(status, r.err.Error())
+	default:
+		status = append(status, r.said)
+	}
+	if r.list.err != nil {
+		status = append(status, r.list.err.Error())
+	}
+	m.status = strings.Join(status, "\n")
+	return m
+}
+
 // open has wt open the selected worktree's session, then lists its repo again,
 // whether or not that worked. A missing worktree has no folder to open one in.
 func (m model) open() tea.Cmd {
@@ -195,8 +318,7 @@ func (m model) open() tea.Cmd {
 	}
 	return func() tea.Msg {
 		err := m.client.Open(r.dir, w.Path)
-		rows, listErr := m.client.List(r.dir)
-		return opened{path: w.Path, err: err, list: listed{dir: r.dir, rows: rows, err: listErr}}
+		return opened{path: w.Path, err: err, list: m.list(r.dir)}
 	}
 }
 
@@ -240,16 +362,21 @@ func (m model) move(by int) model {
 
 func (m model) View() tea.View {
 	if m.mode == messageMode {
-		msg := m.message
-		if m.width > 0 {
-			// break paths at their slashes rather than anywhere
-			msg = ansi.Wrap(msg, m.width, "/")
+		return screen(m.wrap(m.message) + "\n")
+	}
+	if m.mode == refusedMode {
+		lines, fit := m.reasons()
+		shown := strings.Join(lines, "\n")
+		if fit < len(lines) {
+			top := min(m.removing.top, len(lines)-fit) // the window may have grown
+			shown = strings.Join(lines[top:top+fit], "\n") +
+				fmt.Sprintf("\n↑/↓ j/k: scroll (lines %d–%d of %d)", top+1, top+fit, len(lines))
 		}
-		return screen(msg + "\n")
+		return screen(shown + "\n\n" + m.wrap(forcePrompt) + "\n")
 	}
 	var b strings.Builder
 	for _, r := range m.repos {
-		fmt.Fprintf(&b, "%s\n\n", r.name())
+		fmt.Fprintf(&b, "%s\n\n", r.dir)
 		cells := make([][]string, len(r.rows))
 		for i, w := range r.rows {
 			cells[i] = rowCells(w)
@@ -263,11 +390,26 @@ func (m model) View() tea.View {
 		}
 	}
 	b.WriteString("\n")
-	if m.status != "" {
-		b.WriteString(m.status + "\n")
+	if m.mode == confirmMode {
+		b.WriteString(m.removing.question() + "\n")
+		b.WriteString("y: remove   n/q/esc: cancel\n")
+		return screen(b.String())
 	}
-	b.WriteString("↑/↓ j/k: move   enter: open   r: refresh   q/esc: quit\n")
+	if m.status != "" {
+		b.WriteString(m.wrap(m.status) + "\n")
+	}
+	b.WriteString("↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit\n")
 	return screen(b.String())
+}
+
+// wrap wraps text to the window's width, once that's known, breaking paths
+// at their slashes rather than anywhere: the screen would cut off what's past
+// its edge.
+func (m model) wrap(text string) string {
+	if m.width <= 0 {
+		return text
+	}
+	return ansi.Wrap(text, m.width, "/")
 }
 
 // screen is a full-screen view of content, so the terminal is left as it was
