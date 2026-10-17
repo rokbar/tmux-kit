@@ -24,8 +24,16 @@ func main() {
 	if findErr == nil {
 		repoDir, findErr = findRepo(cwd)
 	}
-	if _, err := tea.NewProgram(newModel(wt.New(exe), repoDir, findErr)).Run(); err != nil {
+	final, err := tea.NewProgram(newModel(wt.New(exe), repoDir, findErr)).Run()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "wtui:", err)
 		os.Exit(1)
+	}
+	// Run has restored the terminal, so tmux can have it
+	if m, ok := final.(model); ok && m.handoff != "" {
+		if err := handOff(m.handoff); err != nil {
+			fmt.Fprintln(os.Stderr, "wtui:", err)
+			os.Exit(1)
+		}
 	}
 }

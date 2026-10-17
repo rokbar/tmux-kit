@@ -16,6 +16,7 @@ import (
 // wtClient is what the model needs from wt: a *wt.Client, or a fake in tests.
 type wtClient interface {
 	List(dir string) ([]wt.Worktree, error)
+	Open(dir, path string) error
 }
 
 // repo is one repo's worktrees.
@@ -49,7 +50,8 @@ type model struct {
 	loaded   bool   // a list has arrived, so wt failures go to the status line
 	width    int    // the terminal's width; 0 until it's known
 	message  string // messageMode's text
-	status   string // the status line: the last wt failure since r
+	status   string // the status line: what last went wrong, until r
+	handoff  string // the session to take the terminal to once wtui has quit
 }
 
 // listed is a list of one repo's worktrees from wt.
@@ -57,6 +59,14 @@ type listed struct {
 	dir  string
 	rows []wt.Worktree
 	err  error
+}
+
+// opened is wt having opened path's session, or failed to (err), and the list
+// of path's repo that followed, which has the session in it.
+type opened struct {
+	path string
+	err  error
+	list listed
 }
 
 // newModel is wtui on the repo whose top folder is repoDir, as findRepo
@@ -111,12 +121,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case listed:
 		return m.withList(msg), nil
+	case opened:
+		return m.withOpened(msg)
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			m = m.move(-1)
 		case "down", "j":
 			m = m.move(1)
+		case "enter":
+			return m, m.open()
 		case "r":
 			m.status = ""
 			return m, m.reload()
@@ -150,6 +164,58 @@ func (m model) withList(l listed) model {
 	return m
 }
 
+// withOpened takes in the list that followed opening a worktree's session,
+// then quits to hand the terminal off to that session. If wt failed, or lists
+// no session there, wtui stays and the status line says so.
+func (m model) withOpened(o opened) (model, tea.Cmd) {
+	m = m.withList(o.list)
+	if o.err != nil {
+		m.status = o.err.Error()
+		return m, nil
+	}
+	if o.list.err != nil {
+		return m, nil // withList put it in the status line
+	}
+	// by its folder, as wt finds it: its name may not be the one wt chose
+	i := slices.IndexFunc(o.list.rows, at(o.path))
+	if i < 0 || o.list.rows[i].Session == "" {
+		m.status = "no session started in " + o.path
+		return m, nil
+	}
+	m.handoff = o.list.rows[i].Session
+	return m, tea.Quit
+}
+
+// open has wt open the selected worktree's session, then lists its repo again,
+// whether or not that worked. A missing worktree has no folder to open one in.
+func (m model) open() tea.Cmd {
+	r, w, ok := m.selection()
+	if !ok || w.State == wt.Missing {
+		return nil
+	}
+	return func() tea.Msg {
+		err := m.client.Open(r.dir, w.Path)
+		rows, listErr := m.client.List(r.dir)
+		return opened{path: w.Path, err: err, list: listed{dir: r.dir, rows: rows, err: listErr}}
+	}
+}
+
+// selection is the selected row and the repo it's in; ok is false if no row
+// is selected.
+func (m model) selection() (repo, wt.Worktree, bool) {
+	for _, r := range m.repos {
+		if i := slices.IndexFunc(r.rows, at(m.selected)); i >= 0 {
+			return r, r.rows[i], true
+		}
+	}
+	return repo{}, wt.Worktree{}, false
+}
+
+// at matches the row for the worktree at path.
+func at(path string) func(wt.Worktree) bool {
+	return func(w wt.Worktree) bool { return w.Path == path }
+}
+
 // rows is every repo's rows, in the order they're shown.
 func (m model) rows() []wt.Worktree {
 	var rows []wt.Worktree
@@ -161,7 +227,7 @@ func (m model) rows() []wt.Worktree {
 
 // selectedIndex is the selected row's index in rows, or -1 if none is.
 func (m model) selectedIndex() int {
-	return slices.IndexFunc(m.rows(), func(w wt.Worktree) bool { return w.Path == m.selected })
+	return slices.IndexFunc(m.rows(), at(m.selected))
 }
 
 // move selects the row by rows away, stopping at the first and last rows.
@@ -200,7 +266,7 @@ func (m model) View() tea.View {
 	if m.status != "" {
 		b.WriteString(m.status + "\n")
 	}
-	b.WriteString("↑/↓ j/k: move   r: refresh   q/esc: quit\n")
+	b.WriteString("↑/↓ j/k: move   enter: open   r: refresh   q/esc: quit\n")
 	return screen(b.String())
 }
 

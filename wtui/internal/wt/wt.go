@@ -84,6 +84,19 @@ func (c *Client) List(dir string) ([]Worktree, error) {
 	return rows, nil
 }
 
+// Open has wt open the session of the main clone or worktree at path,
+// starting one with wt's default name if it has none, without switching to it
+// (`wt -d <path>`). wt runs in dir, as for List. If wt fails, the error's text
+// is what it said.
+func (c *Client) Open(dir, path string) error {
+	_, err := c.run(dir, "-d", path)
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return errors.New(failureText(exit))
+	}
+	return err
+}
+
 // run runs wt with args in dir and returns its stdout. A wt that exits
 // non-zero is an *exec.ExitError holding its stderr.
 func (c *Client) run(dir string, args ...string) ([]byte, error) {

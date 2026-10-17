@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,16 +12,28 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
-// fakeWt answers List with whatever rows and error the test has set.
+// fakeWt answers List with whatever rows and error the test has set, and Open
+// with openErr.
 type fakeWt struct {
-	rows  []wt.Worktree
-	err   error
-	lists []string // the folders List was called in
+	rows      []wt.Worktree
+	err       error
+	lists     []string // the folders List was called in
+	opens     []string // the paths Open was called for
+	openErr   error
+	afterOpen []wt.Worktree // if set, the rows once an Open has worked, as wt started a session
 }
 
 func (f *fakeWt) List(dir string) ([]wt.Worktree, error) {
 	f.lists = append(f.lists, dir)
 	return f.rows, f.err
+}
+
+func (f *fakeWt) Open(dir, path string) error {
+	f.opens = append(f.opens, path)
+	if f.openErr == nil && f.afterOpen != nil {
+		f.rows = f.afterOpen
+	}
+	return f.openErr
 }
 
 const repoDir = "/p/demo"
@@ -61,7 +74,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
   demo--gone                   missing  gone
   demo--rebase       detached  dirty    no session
 
-↑/↓ j/k: move   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -81,7 +94,8 @@ func TestHeaderNamesTheRepoByItsMainClone(t *testing.T) {
 	}
 }
 
-// key is a key press: a printable key by its text, else "up", "down" or "esc".
+// key is a key press: a printable key by its text, else "up", "down", "esc"
+// or "enter".
 func key(name string) tea.KeyPressMsg {
 	switch name {
 	case "up":
@@ -90,6 +104,8 @@ func key(name string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	}
 	return tea.KeyPressMsg{Code: []rune(name)[0], Text: name}
 }
@@ -301,5 +317,107 @@ func TestStartupMessageWrapsToTheWindow(t *testing.T) {
 	}
 	if !strings.Contains(strings.ReplaceAll(view, "\n", ""), long) {
 		t.Errorf("view lost part of the path:\n%s", view)
+	}
+}
+
+// enter opens the selected worktree's session through wt: the main clone, a
+// worktree with a session, and one mid-rebase with none.
+func TestEnterOpensTheSelectedWorktree(t *testing.T) {
+	for i, w := range []wt.Worktree{mainClone, feat, rebase} {
+		f := &fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}
+		m := started(t, f)
+		for range i {
+			m, _ = update(t, m, key("j"))
+		}
+		_, cmd := update(t, m, key("enter"))
+		run(t, cmd)
+		if want := []string{w.Path}; !slices.Equal(f.opens, want) {
+			t.Errorf("enter on %s opened %q, want %q", w.Path, f.opens, want)
+		}
+	}
+}
+
+// A missing worktree has no folder to open a session in.
+func TestEnterOnAMissingWorktreeDoesNothing(t *testing.T) {
+	f := &fakeWt{rows: []wt.Worktree{mainClone, gone}}
+	m := started(t, f)
+	m, _ = update(t, m, key("j"))
+	if _, cmd := update(t, m, key("enter")); cmd != nil {
+		cmd()
+		t.Error("enter on a missing worktree issues a command")
+	}
+	if len(f.opens) > 0 {
+		t.Errorf("enter on a missing worktree opened %q", f.opens)
+	}
+}
+
+// After wt opens a worktree, wtui lists again and hands off to the session
+// started in that worktree's folder, whatever it's called, then quits.
+func TestOpenHandsOffToTheSessionFoundByPath(t *testing.T) {
+	// another worktree's session has bugfix's branch name, so wt names
+	// bugfix's new session after its folder
+	bugfix := wt.Worktree{Path: "/p/demo--bugfix", Branch: "bugfix", State: wt.Clean}
+	other := wt.Worktree{Path: "/p/demo--other", Branch: "other", State: wt.Clean, Session: "bugfix"}
+	f := &fakeWt{rows: []wt.Worktree{mainClone, bugfix, other}}
+	m := started(t, f)
+	m, _ = update(t, m, key("j"))
+	withSession := bugfix
+	withSession.Session = "demo--bugfix"
+	f.afterOpen = []wt.Worktree{mainClone, withSession, other}
+
+	m, cmd := update(t, m, key("enter"))
+	m, cmd = update(t, m, run(t, cmd))
+	if want := []string{repoDir, repoDir}; !slices.Equal(f.lists, want) {
+		t.Errorf("listed in %q, want a fresh list after the open: %q", f.lists, want)
+	}
+	if !quits(cmd) {
+		t.Error("wtui doesn't quit after the open")
+	}
+	if m.handoff != "demo--bugfix" {
+		t.Errorf("hands off to session %q, want demo--bugfix", m.handoff)
+	}
+}
+
+func TestFailedOpenShowsWtsErrorAndStays(t *testing.T) {
+	f := &fakeWt{rows: []wt.Worktree{mainClone, feat}}
+	m := started(t, f)
+	m, _ = update(t, m, key("j"))
+	f.openErr = errors.New("wt: tmux session feat already exists")
+
+	m, cmd := update(t, m, key("enter"))
+	m, cmd = update(t, m, run(t, cmd))
+	if quits(cmd) {
+		t.Error("wtui quits after a failed open")
+	}
+	// it reloads after every wt call, failed or not
+	if want := []string{repoDir, repoDir}; !slices.Equal(f.lists, want) {
+		t.Errorf("listed in %q, want a reload after the failed open: %q", f.lists, want)
+	}
+	if m.mode != listMode || m.handoff != "" {
+		t.Errorf("mode = %v, handoff = %q; want listMode and none", m.mode, m.handoff)
+	}
+	view := m.View().Content
+	if !strings.Contains(view, "\nwt: tmux session feat already exists\n") {
+		t.Errorf("view has no status line with wt's error:\n%s", view)
+	}
+	if row := selectedRow(t, m); !strings.Contains(row, "demo--feat ") {
+		t.Errorf("selected row on screen is %q, want demo--feat's still", row)
+	}
+}
+
+// wt said it opened the session, but by the time wtui lists again none is
+// started there (e.g. it ended at once): there's nothing to hand off to.
+func TestOpenWithNoSessionListedThereStays(t *testing.T) {
+	f := &fakeWt{rows: []wt.Worktree{mainClone, rebase}}
+	m := started(t, f)
+	m, _ = update(t, m, key("j"))
+
+	m, cmd := update(t, m, key("enter"))
+	m, cmd = update(t, m, run(t, cmd))
+	if quits(cmd) || m.handoff != "" {
+		t.Errorf("wtui quits (%v) to hand off to %q, want it to stay", quits(cmd), m.handoff)
+	}
+	if view := m.View().Content; !strings.Contains(view, "\nno session started in /p/demo--rebase\n") {
+		t.Errorf("view has no status line saying there's no session:\n%s", view)
 	}
 }

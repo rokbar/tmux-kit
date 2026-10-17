@@ -35,6 +35,12 @@ jobs:
           sudo tar -xzf "$tarball" -C /usr/local/bin fzf
           fzf --version
 
+      # the whole-stack tests (test/wtui-*.sh) build wtui; without Go they skip
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: wtui/go.mod
+          cache-dependency-path: wtui/go.sum
+
       - name: Run test/*.sh
         run: |
           shopt -s nullglob

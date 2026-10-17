@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -60,16 +61,7 @@ func TestListsEveryRowState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// stopped on a conflict mid-rebase, so detached and dirty
-	rebase := s.Path("demo--rebase")
-	s.Git(demo, "worktree", "add", "-q", rebase, "-b", "rebase")
-	s.Write("demo--rebase/f", "theirs\n")
-	s.Git(rebase, "commit", "-qam", "rebase side")
-	s.Write("demo/f", "ours\n")
-	s.Git(demo, "commit", "-qam", "main side")
-	if out, err := exec.Command("git", "-C", rebase, "rebase", "main").CombinedOutput(); err == nil {
-		t.Fatalf("rebase didn't stop on its conflict:\n%s", out)
-	}
+	rebase := midRebase(t, s, demo, "rebase")
 
 	want := []wt.Worktree{
 		{Path: demo, Branch: "main", State: wt.Clean, MainClone: true},
@@ -81,6 +73,25 @@ func TestListsEveryRowState(t *testing.T) {
 	sameRows(t, list(t, demo), want)
 	// the same from inside a worktree: still the main clone first
 	sameRows(t, list(t, dirty), want)
+}
+
+// midRebase makes a worktree of mainClone (a sandbox.Repo, on branch main),
+// next to it on a new branch, stopped on a conflict mid-rebase onto main (so
+// detached and dirty), and returns its path. It commits to main.
+func midRebase(t *testing.T, s *sandbox.Sandbox, mainClone, branch string) string {
+	t.Helper()
+	dir := mainClone + "--" + branch
+	s.Git(mainClone, "worktree", "add", "-q", dir, "-b", branch)
+	for _, side := range []struct{ dir, f string }{{dir, "theirs"}, {mainClone, "ours"}} {
+		if err := os.WriteFile(filepath.Join(side.dir, "f"), []byte(side.f+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s.Git(side.dir, "commit", "-qam", side.f)
+	}
+	if out, err := exec.Command("git", "-C", dir, "rebase", "main").CombinedOutput(); err == nil {
+		t.Fatalf("rebase didn't stop on its conflict:\n%s", out)
+	}
+	return dir
 }
 
 // A wt from after wtui: the real porcelain, with fields added at the end.
@@ -232,4 +243,55 @@ func TestListsTheSessionAndDevURLOfWorktreesWtOpened(t *testing.T) {
 		{Path: feat, Branch: "feat", State: wt.Clean, Session: "api", DevURL: url[1]},
 		{Path: gone, State: wt.Missing, Session: "gone"},
 	})
+}
+
+// Opening a worktree that has no session starts one there, as wt names it by
+// default (its branch, else its folder), so the next list shows it. This works
+// for the main clone and a worktree mid-rebase too, which has no branch.
+func TestOpenStartsASessionInTheWorktree(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	demo := s.Repo("demo")
+	feat := s.Path("demo--feat")
+	s.Git(demo, "worktree", "add", "-q", feat, "-b", "feat")
+	rebase := midRebase(t, s, demo, "rebase")
+
+	c := wt.New("")
+	for _, path := range []string{feat, rebase, demo} {
+		if err := c.Open(demo, path); err != nil {
+			t.Fatalf("Open(%s): %v", path, err)
+		}
+	}
+	sameRows(t, list(t, demo), []wt.Worktree{
+		{Path: demo, Branch: "main", State: wt.Clean, Session: "main", MainClone: true},
+		{Path: feat, Branch: "feat", State: wt.Clean, Session: "feat"},
+		{Path: rebase, State: wt.Dirty, Session: "demo--rebase"},
+	})
+}
+
+// A failed open reads as what wt said, e.g. for a worktree whose folder is gone.
+func TestFailedOpenCarriesWtsMessage(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	gone := s.Path("demo--gone")
+	s.Git(demo, "worktree", "add", "-q", gone, "-b", "gone")
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	// what wt itself says when asked to open it
+	cmd := exec.Command(s.Wt, "-d", gone)
+	cmd.Dir = demo
+	var said strings.Builder
+	cmd.Stderr = &said
+	if cmd.Run() == nil {
+		t.Fatalf("wt -d %s worked, want it to fail", gone)
+	}
+
+	err := wt.New("").Open(demo, gone)
+	if err == nil {
+		t.Fatalf("Open(%s) worked, want it to fail", gone)
+	}
+	if want := strings.TrimSpace(said.String()); err.Error() != want || want == "" {
+		t.Errorf("error = %q, want wt's message %q", err, want)
+	}
 }
