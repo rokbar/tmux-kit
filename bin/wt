@@ -32,7 +32,12 @@ usage:
     -n <name>              name for a new session (default: branch)
     --from <ref>           base for a new branch (default: current branch)
     --no-dev               install deps, but don't start the dev server
-  wt ls                    list worktrees, dirty state and tmux sessions
+  wt ls [--porcelain]      list worktrees, dirty state and tmux sessions
+    --porcelain            one tab-separated line for the main clone, then
+                           each worktree: path, branch, clean|dirty|missing,
+                           session, dev URL. Fields are never reordered,
+                           removed or redefined, only added at the end; a
+                           breaking change would need --porcelain=v2
   wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
   wt close                 confirm, then wt rm the worktree you're in
   wt doctor                show config and settings, check deps and tmux keys
@@ -68,6 +73,12 @@ session_name() { clean_name "$(basename "$1")"; }
 session_for() {
   tmux list-sessions -F '#{session_path}'$'\t''#{session_name}' 2>/dev/null |
     awk -F'\t' -v d="$1" '$1==d{print $2; exit}' || true
+}
+
+# Every session as: session TAB <start dir> TAB <name>. For lists that join it
+# in one pass (pick_rows, ls_rows) instead of a session_for per row.
+session_rows() {
+  tmux list-sessions -F 'session'$'\t''#{session_path}'$'\t''#{session_name}' 2>/dev/null || true
 }
 
 load_repo() {
@@ -273,7 +284,7 @@ pick_rows() {
   {
     git -C "$main" worktree list --porcelain |
       awk '/^worktree /{path=substr($0,10)} /^branch refs\/heads\//{print "worktree\t" substr($0,19) "\t" path}'
-    tmux list-sessions -F 'session'$'\t''#{session_path}'$'\t''#{session_name}' 2>/dev/null || true
+    session_rows
     git -C "$main" for-each-ref --sort=-committerdate --format='branch%09%(refname:short)%09%(refname)' refs/heads
     git -C "$main" for-each-ref --sort=-committerdate --format='branch%09%(refname:lstrip=3)%09%(refname)' "refs/remotes/$WT_REMOTE"
   } | awk -F'\t' -v OFS='\t' '
@@ -321,17 +332,46 @@ cmd_close() {
   "$0" rm "$top" || { pause; exit 1; }
 }
 
+# The main clone, then each worktree (git's order), as <path> US <branch, empty
+# if detached> US <session>. US (\037), not tab: read merges runs of tabs, so
+# empty fields would shift. Sessions matched like session_for: first per dir.
+ls_rows() {
+  {
+    session_rows
+    git -C "$main" worktree list --porcelain
+  } | awk -F'\t' -v OFS='\037' '
+    $1 == "session" { if (!($2 in ses)) ses[$2] = $3; next }
+    /^worktree / { if (n++) print d, b, ses[d]; d = substr($0, 10); b = ""; next }
+    /^branch refs\/heads\// { b = substr($0, 19) }
+    END { if (n) print d, b, ses[d] }'
+}
+
 cmd_ls() {
+  local porcelain=0 d b s state url flags
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --porcelain) porcelain=1 ;;
+      # an error, not v1: e.g. a --porcelain=v2 this wt doesn't have
+      *) usage >&2; exit 1 ;;
+    esac
+    shift
+  done
   load_repo
-  local d b flags s
-  git -C "$main" worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r d; do
-    if [ ! -d "$d" ]; then printf '%s  (missing; git worktree prune)\n' "$d"; continue; fi
-    b="$(git -C "$d" symbolic-ref --quiet --short HEAD || echo '(detached)')"
+  ls_rows | while IFS=$'\037' read -r d b s; do
+    state=missing url=""
+    if [ -d "$d" ]; then
+      state=clean
+      if [ -n "$(git -C "$d" status --porcelain)" ]; then state=dirty; fi
+      if [ -f "$d/.devurl" ]; then IFS= read -r url <"$d/.devurl" || true; fi
+    else
+      b="" # git still records a missing worktree's branch; ls shows none
+    fi
+    if [ "$porcelain" = 1 ]; then printf '%s\t%s\t%s\t%s\t%s\n' "$d" "$b" "$state" "$s" "$url"; continue; fi
+    if [ "$state" = missing ]; then printf '%s  (missing; git worktree prune)\n' "$d"; continue; fi
     flags=""
-    if [ -n "$(git -C "$d" status --porcelain)" ]; then flags+="  dirty"; fi
-    s="$(session_for "$d")"
+    if [ "$state" = dirty ]; then flags+="  dirty"; fi
     if [ -n "$s" ]; then flags+="  [tmux: $s]"; fi
-    printf '%s  %s%s\n' "$d" "$b" "$flags"
+    printf '%s  %s%s\n' "$d" "${b:-(detached)}" "$flags"
   done
 }
 
@@ -482,7 +522,7 @@ case "${1:-}" in
   pick) shift; cmd_pick "$@" ;;
   close) cmd_close ;;
   doctor) cmd_doctor ;;
-  ls) cmd_ls ;;
+  ls) shift; cmd_ls "$@" ;;
   rm) shift; cmd_rm "$@" ;;
   *) cmd_open "$@" ;;
 esac

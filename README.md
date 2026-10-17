@@ -65,6 +65,22 @@ To use a different editor for `prefix e`, put
   worktree's). `--no-dev` installs only. New sessions also get a git UI
   window, if configured and installed. wt prints each step.
 - `wt ls`: list worktrees with dirty state and tmux session.
+  `wt ls --porcelain` is the form for scripts: one line for the main clone,
+  then one for each worktree in git's order, with tab-separated fields:
+
+  | # | Field | Values |
+  | --- | --- | --- |
+  | 1 | path | absolute path of the worktree (or main clone) |
+  | 2 | branch | branch name; empty if detached (incl. mid-rebase) or missing |
+  | 3 | state | `clean`, `dirty` or `missing` |
+  | 4 | session | name of the session started in it, even if renamed; empty if none |
+  | 5 | dev URL | first line of its `.devurl`; empty if none |
+
+  Fields are never reordered, removed or redefined, and new ones are only added
+  at the end, so read the fields you know and ignore any after them. A breaking
+  change would need `--porcelain=v2`, leaving `--porcelain` as it is. Known
+  limitation: a tab or newline in a worktree's path breaks the format, as it
+  already breaks wt's own reading of git's worktree list.
 - `wt rm [-f] <branch|slug|path>`: remove the worktree and kill its session;
   the branch is kept. Refuses on uncommitted changes, commits on no other
   branch or remote, or shared files that became real files instead of links.
@@ -74,7 +90,7 @@ To use a different editor for `prefix e`, put
   whether `wt_before_link` is defined) and, in a repo, the worktree root. Checks
   tmux, git, fzf and lsof, `wt` on `PATH` and, inside tmux, that `prefix W` /
   `X` run wt. Exits non-zero if tmux, git or fzf is missing (lsof is optional).
-- `wt --help`: one line per command, plus examples.
+- `wt --help`: the commands and options in brief, plus examples.
 
 ## Config
 

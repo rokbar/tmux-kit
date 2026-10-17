@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wt --help is short: a line per command and option, examples, the config path.
+# wt --help is short: the commands and options in brief, examples, the config path.
 set -euo pipefail
 # shellcheck source=test/lib/sandbox.sh
 . "$(dirname "$0")/lib/sandbox.sh"
@@ -7,12 +7,15 @@ set -euo pipefail
 wt --help || fail "wt --help failed"
 help="$(cat "$tmp/log")"
 n="$(grep -c '' <<<"$help")"
-[ "$n" -le 25 ] || fail "wt --help is $n lines, want <= 25"
+[ "$n" -le 30 ] || fail "wt --help is $n lines, want <= 30"
 
 commands="$(sed '/^examples:/,$d' <<<"$help")"
 for c in pick ls rm close doctor; do
   grep -qE "^  wt \[?$c\]?( |\$)" <<<"$commands" || fail "no line for wt $c: $help"
 done
+# scripts read --porcelain, so its stability rule is part of the help
+grep -qE '^  wt ls \[--porcelain\]( |$)' <<<"$commands" || fail "no line for wt ls [--porcelain]: $help"
+grep -qF -- "--porcelain=v2" <<<"$commands" || fail "no --porcelain compatibility rule: $help"
 for o in -d -n --from --no-dev -f; do
   grep -qE "(^| |\[)$o( |\]|\$)" <<<"$commands" || fail "option $o not in help: $help"
 done
