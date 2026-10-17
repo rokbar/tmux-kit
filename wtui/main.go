@@ -7,6 +7,8 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
 func main() {
@@ -16,7 +18,13 @@ func main() {
 		fmt.Println("wtui", currentVersion())
 		return
 	}
-	if _, err := tea.NewProgram(newModel()).Run(); err != nil {
+	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
+	var repoDir string
+	cwd, findErr := os.Getwd()
+	if findErr == nil {
+		repoDir, findErr = findRepo(cwd)
+	}
+	if _, err := tea.NewProgram(newModel(wt.New(exe), repoDir, findErr)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wtui:", err)
 		os.Exit(1)
 	}

@@ -69,6 +69,11 @@ jobs:
           go-version-file: wtui/go.mod
           cache-dependency-path: wtui/go.sum
 
+      # the wt client's tests run the real bin/wt, whose sessions need tmux
+      # (without it, those tests skip)
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
       - run: go vet ./...
 
       - run: go test ./...
