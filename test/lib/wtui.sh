@@ -47,6 +47,9 @@ build_wtui() {
 # pane stays after wtui exits, so its screen and exit status can be read.
 # Both sessions start in $tmp, so neither counts as a worktree's session.
 # Commands are given to tmux as words, so the user's shell doesn't run them.
+# wtui's window keeps its 100x30 (window-size manual) when the client attaches:
+# a resize just as wtui starts can come before Bubble Tea listens for SIGWINCH,
+# and wtui would go on drawing for the old size, garbling the screen.
 start_wtui() {
   local dir="$1"
   shift
@@ -55,7 +58,8 @@ start_wtui() {
   # shellcheck disable=SC2016 # sh expands $1 and $@ in the pane, not here
   wtui_pane="$(tmux new-session -d -P -F '#{pane_id}' -s wtui -x 100 -y 30 -c "$tmp" \
     /bin/sh -c 'cd "$1" && shift && exec "$@"' sh "$dir" "$@" "$HOME/.local/bin/wtui" \; \
-    set-option -w -t =wtui: remain-on-exit on)"
+    set-option -w -t =wtui: remain-on-exit on \; \
+    set-option -w -t =wtui: window-size manual)"
   term_pane="$(tmux new-session -d -P -F '#{pane_id}' -s term -x 100 -y 30 -c "$tmp" \
     env -u TMUX tmux attach -t =wtui)"
   wait_until "a tmux client on session wtui" client_on "$term_pane" wtui
@@ -91,11 +95,18 @@ wait_until() {
 $(screen)"
 }
 
-# wtui_exited: whether wtui has exited (its pane is dead)
-wtui_exited() { [ "$(tmux display-message -p -t "$wtui_pane" '#{pane_dead}')" = 1 ]; }
+# wtui_exited: whether wtui has exited (its pane is dead) and tmux has its exit
+# status. tmux marks the pane dead once its terminal closes, which can be before
+# it has reaped wtui and so knows the status.
+wtui_exited() {
+  case "$(tmux display-message -p -t "$wtui_pane" '#{pane_dead} #{pane_dead_status}#{pane_dead_signal}')" in
+    "1 "?*) ;;
+    *) return 1 ;;
+  esac
+}
 
-# wtui_status: wtui's exit status, once it has exited
-wtui_status() { tmux display-message -p -t "$wtui_pane" '#{pane_dead_status}'; }
+# wtui_status: wtui's exit status, or "signal <n>", once it has exited
+wtui_status() { tmux display-message -p -t "$wtui_pane" '#{?pane_dead_signal,signal #{pane_dead_signal},#{pane_dead_status}}'; }
 
 # client_session <pane>: the session of the tmux client running in <pane>, if
 # one is. Space-separated: tmux turns a tab into _ without a UTF-8 locale. awk
