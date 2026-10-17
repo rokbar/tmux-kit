@@ -16,6 +16,9 @@ done
 # scripts read --porcelain, so its stability rule is part of the help
 grep -qE '^  wt ls \[--porcelain\]( |$)' <<<"$commands" || fail "no line for wt ls [--porcelain]: $help"
 grep -qF -- "--porcelain=v2" <<<"$commands" || fail "no --porcelain compatibility rule: $help"
+# a path opens a worktree that exists; it doesn't make one like a branch can
+grep -qE '^  wt \[-d\] \[-n <name>\] <path> .*existing worktree' <<<"$commands" ||
+  fail "no line saying wt <path> opens an existing worktree: $help"
 for o in -d -n --from --no-dev -f; do
   grep -qE "(^| |\[)$o( |\]|\$)" <<<"$commands" || fail "option $o not in help: $help"
 done

@@ -32,6 +32,7 @@ usage:
     -n <name>              name for a new session (default: branch)
     --from <ref>           base for a new branch (default: current branch)
     --no-dev               install deps, but don't start the dev server
+  wt [-d] [-n <name>] <path>  open the existing worktree at ./path or /path
   wt ls [--porcelain]      list worktrees, dirty state and tmux sessions
     --porcelain            one tab-separated line for the main clone, then
                            each worktree: path, branch, clean|dirty|missing,
@@ -81,10 +82,13 @@ session_rows() {
   tmux list-sessions -F 'session'$'\t''#{session_path}'$'\t''#{session_name}' 2>/dev/null || true
 }
 
+# The repo <dir> is in (default: the folder wt runs in). Sets here (<dir>'s
+# worktree), main, repo and root.
 load_repo() {
-  git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repo"
-  here="$(git rev-parse --show-toplevel)"
-  main="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+  local d="${1:-.}"
+  git -C "$d" rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repo"
+  here="$(git -C "$d" rev-parse --show-toplevel)"
+  main="$(dirname "$(git -C "$d" rev-parse --path-format=absolute --git-common-dir)")"
   repo="$(basename "$main")"
   root="${WT_ROOT:-$(dirname "$main")}"
   root="${root/#\~/$HOME}"
@@ -103,6 +107,57 @@ remote_default() {
 checked_out_at() {
   git -C "$main" worktree list --porcelain |
     awk -v ref="refs/heads/$1" '/^worktree /{p=substr($0,10)} $0=="branch " ref {print p; exit}'
+}
+
+# A worktree argument that is a path, not a branch: git refuses branch names
+# that start with / or have a part that starts with .
+is_path() { case "$1" in /* | .*) ;; *) return 1 ;; esac; }
+
+# The worktree (or main clone) <arg> names in the loaded repo: a path (a folder
+# inside a worktree counts), else a branch checked out in one, else a slug
+# (<repo><WT_SEP> optional). Matched against git's worktree list, so a missing
+# worktree (folder gone) is found too. Sets worktree (its path),
+# worktree_branch (as git records it; empty if detached) and worktree_state
+# (present or missing). Dies if <arg> names no registered worktree.
+find_worktree() {
+  local arg="$1" unlisted_msg=""
+  if is_path "$arg"; then
+    if ! worktree="$(git -C "$arg" rev-parse --show-toplevel 2>/dev/null)"; then
+      # git can't look inside a folder that's gone: a missing worktree's path
+      # can only match as it is
+      worktree="$(CDPATH='' cd "$(dirname "$arg")" 2>/dev/null && pwd -P)" || die "not a git dir: $arg"
+      worktree="${worktree%/}/$(basename "$arg")"
+      unlisted_msg="not a git dir: $arg"
+    fi
+  else
+    worktree="$(checked_out_at "$arg")"
+    [ -n "$worktree" ] || worktree="$(wt_dir "${arg#"$repo$WT_SEP"}")"
+  fi
+  worktree_branch="$(git -C "$main" worktree list --porcelain | awk -v w="worktree $worktree" '
+    /^worktree / { f = ($0 == w); if (f) found = 1; next }
+    f && /^branch refs\/heads\// { b = substr($0, 19) }
+    END { if (!found) exit 1; print b }')" || die "${unlisted_msg:-not a worktree: $worktree}"
+  worktree_state=present
+  if [ ! -d "$worktree" ]; then worktree_state=missing; fi
+}
+
+# find_worktree, for a worktree that must be present
+present_worktree() {
+  find_worktree "$1"
+  [ "$worktree_state" = present ] || die "missing worktree: $worktree (folder gone; git worktree prune unregisters it)"
+}
+
+# present_worktree for <path>, from anywhere: in the repo <path> is in, else
+# (e.g. its folder is gone) the one wt runs in. Loads that repo. <path> must be
+# the worktree's own folder, not one inside it.
+worktree_at() {
+  if git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1; then load_repo "$1"
+  else
+    in_work_tree || die "not a git dir: $1"
+    load_repo
+  fi
+  present_worktree "$1"
+  [ -z "$(git -C "$1" rev-parse --show-prefix)" ] || die "not a worktree: $1 (a folder inside $worktree)"
 }
 
 create() {
@@ -195,8 +250,10 @@ open_session() {
   if [ -n "$def" ]; then
     name="$def"
   else
+    # the branch's name, else the folder's: no branch (e.g. mid-rebase), or a
+    # session already has the branch's name
     def="$(clean_name "$branch")"
-    if tmux has-session -t "=$def" 2>/dev/null; then def="$(session_name "$dir")"; fi
+    if [ -z "$def" ] || tmux has-session -t "=$def" 2>/dev/null; then def="$(session_name "$dir")"; fi
     while :; do
       if [ "$ask" = 1 ] && [ -z "$name" ]; then read -r -p "session name [$def]: " name; fi
       name="$(clean_name "${name:-$def}")"
@@ -235,7 +292,7 @@ open_session() {
 }
 
 cmd_open() {
-  local detach=0 base="" branch="" dir fresh=0 name="" ask=0 dev=1
+  local detach=0 base="" arg="" branch dir fresh=0 name="" ask=0 dev=1
   while [ $# -gt 0 ]; do
     case "$1" in
       -d) detach=1 ;;
@@ -244,11 +301,19 @@ cmd_open() {
       --ask-name) ask=1 ;;
       --from) base="${2:?--from needs a ref}"; shift ;;
       -*) usage >&2; exit 1 ;;
-      *) branch="$1" ;;
+      *) arg="$1" ;;
     esac
     shift
   done
-  [ -n "$branch" ] || { usage >&2; exit 1; }
+  [ -n "$arg" ] || { usage >&2; exit 1; }
+  # a path opens the worktree there as it is: nothing to create or set up
+  if is_path "$arg"; then
+    [ -z "$base" ] || die "--from is for a new branch; $arg is a path"
+    worktree_at "$arg"
+    open_session "$worktree" 0 "$detach" "$name" "$ask" "$worktree_branch" "$dev"
+    return
+  fi
+  branch="$arg"
   git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch name: $branch"
   load_repo
 
@@ -388,14 +453,8 @@ cmd_rm() {
   [ -n "$arg" ] || { usage >&2; exit 1; }
   load_repo
 
-  case "$arg" in
-    /* | .*) dir="$(git -C "$arg" rev-parse --show-toplevel 2>/dev/null)" || die "not a git dir: $arg" ;;
-    *)
-      dir="$(checked_out_at "$arg")"
-      [ -n "$dir" ] || dir="$(wt_dir "${arg#"$repo$WT_SEP"}")"
-      ;;
-  esac
-  git -C "$main" worktree list --porcelain | grep -qxF "worktree $dir" || die "not a worktree: $dir"
+  present_worktree "$arg"
+  dir="$worktree"
   [ "$dir" != "$main" ] || die "refusing to remove the main clone"
   b="$(git -C "$dir" symbolic-ref --quiet --short HEAD || true)"
   name="$(session_for "$dir")"

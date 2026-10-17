@@ -64,6 +64,16 @@ To use a different editor for `prefix e`, put
   from 3000 that no other worktree claims in its `.devurl` (wt writes the new
   worktree's). `--no-dev` installs only. New sessions also get a git UI
   window, if configured and installed. wt prints each step.
+- `wt <path>` (`wt [-d] [-n <name>] <path>`): open the existing worktree or
+  main clone at that path as it is, even with no branch checked out (detached,
+  or mid-rebase, which `wt <branch>` can't open). An argument starting with `/`
+  or `.` is a path (`.`, `./x`, `../<repo>--x`), never a branch; it works from
+  outside the repo too. It reuses the session started in that folder, else
+  starts one named after the branch, or after the folder if there's no branch;
+  `-d` and `-n` work as for a branch. It never creates a worktree or branch,
+  copies or links files, or starts installs or a dev server, so `--from` is an
+  error, as are a missing worktree and a path that isn't a worktree's own
+  folder (a folder inside one included).
 - `wt ls`: list worktrees with dirty state and tmux session.
   `wt ls --porcelain` is the form for scripts: one line for the main clone,
   then one for each worktree in git's order, with tab-separated fields:
