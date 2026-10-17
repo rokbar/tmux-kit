@@ -84,6 +84,9 @@ wtui="$HOME/.local/bin/wtui"
 
 run_install() { rm -f "$tmp/curl.log"; "$kit/install.sh" "$@" >"$tmp/out" 2>&1; }
 installed() { "$wtui" --version; }
+# whether prefix <key> opens a popup. Not grep -q: it can exit before tmux has
+# written the whole table, and pipefail then fails on tmux's SIGPIPE (tmux 3.4)
+popup_bound() { tmux list-keys -T prefix | tr -s ' ' | grep "^bind-key -T prefix $1 display-popup " >/dev/null; }
 
 ! run_install --wtiu || fail "install.sh accepted an unknown option"
 [ ! -e "$HOME/.local/bin" ] || fail "install.sh with an unknown option installed things"
@@ -102,7 +105,7 @@ TMUX="$(tmux display -p '#{socket_path},#{pid},0')" run_install --wtui ||
   fail "installed $(installed), want v0.0.1 for $host"
 [ "$(cat "$tmp/curl.log")" = "$latest/$asset
 $latest/checksums.txt" ] || fail "install.sh --wtui downloaded: $(cat "$tmp/curl.log")"
-tmux list-keys -T prefix | tr -s ' ' | grep -q '^bind-key -T prefix w display-popup ' ||
+popup_bound w ||
   fail "after install.sh --wtui in tmux, prefix w isn't bound to wtui"
 tmux kill-server
 
@@ -143,7 +146,7 @@ refused "download failed"
 rm "$tmp/release"/*
 tmux -f /dev/null new-session -d 'cat >/dev/null'
 TMUX="$(tmux display -p '#{socket_path},#{pid},0')" refused "download failed"
-tmux list-keys -T prefix | tr -s ' ' | grep -q '^bind-key -T prefix W display-popup ' ||
+popup_bound W ||
   fail "a failed install.sh --wtui in tmux didn't reload the config"
 tmux kill-server
 
