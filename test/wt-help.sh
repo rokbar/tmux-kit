@@ -19,6 +19,11 @@ grep -qF -- "--porcelain=v2" <<<"$commands" || fail "no --porcelain compatibilit
 # a path opens a worktree that exists; it doesn't make one like a branch can
 grep -qE '^  wt \[-d\] \[-n <name>\] <path> .*existing worktree' <<<"$commands" ||
   fail "no line saying wt <path> opens an existing worktree: $help"
+# scripts tell a safety refusal (which -f overrides) from other failures by
+# wt rm's exit status, so the codes are part of the help, under wt rm
+rm_help="$(sed -n '/^  wt rm /,/^  wt [a-z]/p' <<<"$commands")"
+grep -qE '(^|[^0-9])3[^0-9].*safety refusal' <<<"$rm_help" || fail "no exit 3 for a safety refusal under wt rm: $help"
+grep -qE '(^|[^0-9])1[^0-9].*other' <<<"$rm_help" || fail "no exit 1 for other failures under wt rm: $help"
 for o in -d -n --from --no-dev -f; do
   grep -qE "(^| |\[)$o( |\]|\$)" <<<"$commands" || fail "option $o not in help: $help"
 done

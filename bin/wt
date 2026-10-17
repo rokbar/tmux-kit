@@ -40,6 +40,7 @@ usage:
                            removed or redefined, only added at the end; a
                            breaking change would need --porcelain=v2
   wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
+                           exits 3 on a safety refusal, 1 on other errors
   wt close                 confirm, then wt rm the worktree you're in
   wt doctor                show config and settings, check deps and tmux keys
   wt -h | --help           this help
@@ -57,6 +58,9 @@ EOF
 }
 
 die() { echo "wt: $*" >&2; exit 1; }
+# A safety refusal: wt rm would lose work, which -f overrides. Its own exit
+# status, so a script (wtui) can offer -f for this and no other failure.
+refuse() { echo "wt: $*" >&2; exit 3; }
 
 # keep errors readable before a tmux popup closes
 pause() { read -rsn1 -p "wt failed (see above); press any key"; }
@@ -144,7 +148,7 @@ find_worktree() {
 # find_worktree, for a worktree that must be present
 present_worktree() {
   find_worktree "$1"
-  [ "$worktree_state" = present ] || die "missing worktree: $worktree (folder gone; git worktree prune unregisters it)"
+  [ "$worktree_state" = present ] || die "missing worktree: $worktree (folder gone; wt rm unregisters it)"
 }
 
 # present_worktree for <path>, from anywhere: in the repo <path> is in, else
@@ -440,8 +444,52 @@ cmd_ls() {
   done
 }
 
+# A safety refusal if removing the present worktree <dir>, on branch <b> (empty
+# if detached), would lose work. Call it as a plain command, not left of || or
+# && nor in $(...): set -e would be off inside, so a crashing git would pass.
+check_safe_to_remove() {
+  local dir="$1" b="$2" out f problems=""
+  # our own links show as untracked; trash_worktree removes them
+  out="$(git -C "$dir" status --porcelain --untracked-files=all | while IFS= read -r l; do
+    [ -L "$dir/${l#?? }" ] && [[ " ${WT_LINK_FILES[*]-} " == *" ${l#?? } "* ]] || echo "$l"
+  done)"
+  if [ -n "$out" ]; then problems+=$'\n'"uncommitted changes:"$'\n'"$out"; fi
+
+  if [ -n "$b" ]; then
+    out="$(git -C "$dir" log --oneline HEAD --not --exclude="$b" --branches --remotes)"
+  else
+    out="$(git -C "$dir" log --oneline HEAD --not --branches --remotes)"
+  fi
+  if [ -n "$out" ]; then problems+=$'\n'"commits on no other branch or remote:"$'\n'"$out"; fi
+
+  for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
+    if [ -e "$dir/$f" ] && [ ! -L "$dir/$f" ]; then
+      if [ -f "$dir/$f" ] && [ -f "$main/$f" ] && cmp -s "$dir/$f" "$main/$f"; then continue; fi
+      problems+=$'\n'"$f is a real file/dir, not a link to the main clone (gitignored, would be lost): merge into $main/$f"
+    fi
+  done
+
+  if [ -n "$problems" ]; then refuse "not removing $dir:$problems"$'\n'"(wt rm -f to force)"; fi
+}
+
+# Unregisters the present worktree <dir> and deletes its folder.
+trash_worktree() {
+  local dir="$1" f trash
+  for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
+    if [ -L "$dir/$f" ]; then rm "$dir/$f"; fi
+  done
+  # Instead of `git worktree remove`: node_modules can be 100k+ files, and
+  # interrupting that slow, silent delete leaves a half-deleted, still-registered
+  # worktree. mv is instant; prune unregisters it; the delete runs in background.
+  trash="$root/.wt-trash"
+  mkdir -p "$trash"
+  mv "$dir" "$trash/$$-$(basename "$dir")"
+  git -C "$main" worktree prune
+  nohup sh -c 'rm -rf "$1"/*' _ "$trash" >/dev/null 2>&1 &
+}
+
 cmd_rm() {
-  local force=0 arg="" dir b name out f problems=""
+  local force=0 arg="" dir b kept name
   while [ $# -gt 0 ]; do
     case "$1" in
       -f) force=1 ;;
@@ -453,54 +501,29 @@ cmd_rm() {
   [ -n "$arg" ] || { usage >&2; exit 1; }
   load_repo
 
-  present_worktree "$arg"
+  find_worktree "$arg"
   dir="$worktree"
   [ "$dir" != "$main" ] || die "refusing to remove the main clone"
-  b="$(git -C "$dir" symbolic-ref --quiet --short HEAD || true)"
-  name="$(session_for "$dir")"
-
-  if [ "$force" = 0 ]; then
-    # our own links show as untracked; they're removed below
-    out="$(git -C "$dir" status --porcelain --untracked-files=all | while IFS= read -r l; do
-      [ -L "$dir/${l#?? }" ] && [[ " ${WT_LINK_FILES[*]-} " == *" ${l#?? } "* ]] || echo "$l"
-    done)"
-    if [ -n "$out" ]; then problems+=$'\n'"uncommitted changes:"$'\n'"$out"; fi
-
-    if [ -n "$b" ]; then
-      out="$(git -C "$dir" log --oneline HEAD --not --exclude="$b" --branches --remotes)"
-    else
-      out="$(git -C "$dir" log --oneline HEAD --not --branches --remotes)"
-    fi
-    if [ -n "$out" ]; then problems+=$'\n'"commits on no other branch or remote:"$'\n'"$out"; fi
-
-    for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
-      if [ -e "$dir/$f" ] && [ ! -L "$dir/$f" ]; then
-        if [ -f "$dir/$f" ] && [ -f "$main/$f" ] && cmp -s "$dir/$f" "$main/$f"; then continue; fi
-        problems+=$'\n'"$f is a real file/dir, not a link to the main clone (gitignored, would be lost): merge into $main/$f"
-      fi
-    done
-
-    if [ -n "$problems" ]; then die "not removing $dir:$problems"$'\n'"(wt rm -f to force)"; fi
-  fi
-
+  # before the safety checks: -f can't get past a lock, so a locked worktree
+  # mustn't look like a safety refusal
   if git -C "$main" worktree list --porcelain |
     awk -v w="worktree $dir" '$0==w{f=1;next} /^worktree /{f=0} f && /^locked/{found=1} END{exit !found}'; then
     die "$dir is locked (git worktree unlock it first)"
   fi
+  b="$worktree_branch"
+  kept="${b:+; branch $b kept (git branch -d $b to delete)}"
+  name="$(session_for "$dir")"
 
-  for f in ${WT_LINK_FILES[@]+"${WT_LINK_FILES[@]}"}; do
-    if [ -L "$dir/$f" ]; then rm "$dir/$f"; fi
-  done
-  # Instead of `git worktree remove`: node_modules can be 100k+ files, and
-  # interrupting that slow, silent delete leaves a half-deleted, still-registered
-  # worktree. mv is instant; prune unregisters it; the delete runs in background.
-  local trash
-  trash="$root/.wt-trash"
-  mkdir -p "$trash"
-  mv "$dir" "$trash/$$-$(basename "$dir")"
-  git -C "$main" worktree prune
-  nohup sh -c 'rm -rf "$1"/*' _ "$trash" >/dev/null 2>&1 &
-  echo "wt: removed $dir${b:+; branch $b kept (git branch -d $b to delete)}"
+  if [ "$worktree_state" = missing ]; then
+    # its folder is gone, so there's nothing to check or move: unregister just
+    # this worktree (prune would unregister every missing one)
+    git -C "$main" worktree remove "$dir"
+    echo "wt: unregistered missing worktree $dir$kept"
+  else
+    if [ "$force" = 0 ]; then check_safe_to_remove "$dir" "$b"; fi
+    trash_worktree "$dir"
+    echo "wt: removed $dir$kept"
+  fi
 
   # last: if we're running inside this session, killing it ends us too
   if [ -n "$name" ]; then
@@ -582,6 +605,16 @@ case "${1:-}" in
   close) cmd_close ;;
   doctor) cmd_doctor ;;
   ls) shift; cmd_ls "$@" ;;
-  rm) shift; cmd_rm "$@" ;;
+  rm)
+    shift
+    # 3 is a safety refusal (refuse) and nothing else; any other failure, a
+    # crashing git included, is 1. Not `( cmd_rm ) || ...`: that turns off
+    # set -e inside.
+    set +e
+    (set -e; cmd_rm "$@")
+    status=$?
+    set -e
+    case "$status" in 0 | 3) exit "$status" ;; *) exit 1 ;; esac
+    ;;
   *) cmd_open "$@" ;;
 esac
