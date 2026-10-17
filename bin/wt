@@ -35,6 +35,7 @@ usage:
   wt ls                    list worktrees, dirty state and tmux sessions
   wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
   wt close                 confirm, then wt rm the worktree you're in
+  wt doctor                show config and settings, check deps and tmux keys
   wt -h | --help           this help
 
 examples:
@@ -259,8 +260,10 @@ cmd_open() {
   open_session "$dir" "$fresh" "$detach" "$name" "$ask" "$branch" "$dev"
 }
 
+in_work_tree() { git rev-parse --show-toplevel >/dev/null 2>&1; }
+
 # bare wt opens the picker, but only where it can run; elsewhere it's help
-can_pick() { git rev-parse --show-toplevel >/dev/null 2>&1 && command -v fzf >/dev/null; }
+can_pick() { in_work_tree && command -v fzf >/dev/null; }
 
 # Picker rows, local branches then $WT_REMOTE-only ones, newest first:
 # <● if checked out in a worktree> TAB <branch> TAB <[session] if it has one> TAB <ref>.
@@ -409,11 +412,76 @@ cmd_rm() {
   fi
 }
 
+# A setting the way config.sh would set it: WT_SEP=-- or WT_COPY_FILES=(.env .env.local)
+show_setting() {
+  local items=() x out=""
+  if [[ "$(declare -p "$1")" != "declare -a"* ]]; then printf '  %s=%q\n' "$1" "${!1}"; return; fi
+  # copy the array; bash 3.2 has no namerefs, and $1 is a variable name, safe to eval
+  eval "items=(\${$1[@]+\"\${$1[@]}\"})"
+  for x in ${items[@]+"${items[@]}"}; do printf -v x '%q' "$x"; out+=" $x"; done
+  printf '  %s=(%s)\n' "$1" "${out# }"
+}
+
+# Whether prefix <key> runs wt <cmd> (as a word), from `tmux list-keys -T prefix` output <keys>.
+show_key() {
+  if grep -qE "^bind-key +(-r +)?-T prefix +$1 .*[^[:alnum:]_-]wt $2([^[:alnum:]_-]|\$)" <<<"$3"; then
+    echo "  prefix $1: wt $2"
+  else echo "  prefix $1: not bound to wt $2 (is tmux-kit's tmux.conf loaded?)"; fi
+}
+
+# tmux-kit's prefix W / X, in the server we're in (tmux talks to the one $TMUX names).
+show_tmux_keys() {
+  local keys
+  if [ -z "${TMUX:-}" ]; then echo "tmux keys: not checked (not in tmux)"; return; fi
+  # list-keys would start a new server if $TMUX's is gone; list-sessions doesn't
+  if ! tmux list-sessions >/dev/null 2>&1; then
+    echo "tmux keys: not checked (no tmux server at ${TMUX%%,*})"; return
+  fi
+  keys="$(tmux list-keys -T prefix 2>/dev/null || true)"
+  echo "tmux keys:"
+  show_key W pick "$keys"
+  show_key X close "$keys"
+}
+
+# Which config file wt loaded, every setting and whether the hook is defined.
+show_config() {
+  local v
+  if [ -f "$WT_CONFIG" ]; then echo "config: $WT_CONFIG (loaded)"
+  else echo "config: $WT_CONFIG (not found; using defaults)"; fi
+  # the settings in "config" above; not ${!WT_@}, the env has others (WT_SESSION)
+  for v in WT_ROOT WT_SEP WT_REMOTE WT_GIT_UI WT_DEV_SCRIPT WT_PORT_START WT_COPY_FILES WT_LINK_FILES; do
+    show_setting "$v"
+  done
+  if declare -F wt_before_link >/dev/null; then echo "  wt_before_link: defined"
+  else echo "  wt_before_link: not defined"; fi
+}
+
+cmd_doctor() {
+  local d p missing=""
+  show_config
+  if in_work_tree; then load_repo; echo "worktree root: $root"; fi
+
+  echo "deps:"
+  for d in tmux git fzf; do
+    if p="$(command -v "$d")"; then echo "  $d: $p"; else echo "  $d: missing"; missing+=" $d"; fi
+  done
+  # only free_port uses it: without it, the dev server may get a busy port
+  if p="$(command -v lsof)"; then echo "  lsof: $p"
+  else echo "  lsof: missing (optional: wt can't see which dev ports are in use)"; fi
+  if p="$(command -v wt)"; then echo "wt on PATH: $p"
+  else echo "wt on PATH: not found (install.sh links it into ~/.local/bin; add that to PATH)"; fi
+
+  show_tmux_keys
+  echo "alt keys: not checked; alt-enter / alt-o need Option as Alt in your terminal"
+  if [ -n "$missing" ]; then die "missing:$missing"; fi
+}
+
 case "${1:-}" in
   "") if can_pick; then cmd_pick; else usage; fi ;;
   -h | --help) usage ;;
   pick) shift; cmd_pick "$@" ;;
   close) cmd_close ;;
+  doctor) cmd_doctor ;;
   ls) cmd_ls ;;
   rm) shift; cmd_rm "$@" ;;
   *) cmd_open "$@" ;;

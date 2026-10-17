@@ -63,6 +63,10 @@ To use a different editor for `prefix e`, put
   branch or remote, or shared files that became real files instead of links.
   `-f` skips these checks.
 - `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in.
+- `wt doctor`: shows the config file wt loaded, the settings in effect (and
+  whether `wt_before_link` is defined) and, in a repo, the worktree root. Checks
+  tmux, git, fzf and lsof, `wt` on `PATH` and, inside tmux, that `prefix W` /
+  `X` run wt. Exits non-zero if tmux, git or fzf is missing (lsof is optional).
 - `wt --help`: one line per command, plus examples.
 
 ## Config

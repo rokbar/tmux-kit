@@ -10,7 +10,7 @@ n="$(grep -c '' <<<"$help")"
 [ "$n" -le 25 ] || fail "wt --help is $n lines, want <= 25"
 
 commands="$(sed '/^examples:/,$d' <<<"$help")"
-for c in pick ls rm close; do
+for c in pick ls rm close doctor; do
   grep -qE "^  wt \[?$c\]?( |\$)" <<<"$commands" || fail "no line for wt $c: $help"
 done
 for o in -d -n --from --no-dev -f; do
