@@ -16,6 +16,8 @@ import (
 // with openErr, and Remove as wt would: removeErr if set, else a safety
 // refusal with the text refusal if that's set and Remove doesn't force, else
 // the worktree's row and folder are gone (so wt can't run there) and wt says so.
+// Pick's command runs the picker at once, rather than pausing wtui for it:
+// whatever onPick does, then done with pickErr.
 type fakeWt struct {
 	rows      []wt.Worktree
 	err       error
@@ -27,6 +29,9 @@ type fakeWt struct {
 	removeErr error
 	refusal   string
 	moved     []string // the folders Remove has moved away
+	picks     []string // the folders the picker ran in
+	onPick    func()   // what the picker does while it runs, e.g. open a session
+	pickErr   error
 }
 
 func (f *fakeWt) List(dir string) ([]wt.Worktree, error) {
@@ -60,6 +65,16 @@ func (f *fakeWt) Remove(dir, path string, force bool) (string, error) {
 	f.rows = slices.DeleteFunc(slices.Clone(f.rows), at(path))
 	f.moved = append(f.moved, path)
 	return "wt: removed " + path, nil
+}
+
+func (f *fakeWt) Pick(dir string, done tea.ExecCallback) tea.Cmd {
+	return func() tea.Msg {
+		f.picks = append(f.picks, dir)
+		if f.onPick != nil {
+			f.onPick()
+		}
+		return done(f.pickErr)
+	}
 }
 
 const repoDir = "/p/demo"
@@ -100,7 +115,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
   demo--gone                   missing  gone
   demo--rebase       detached  dirty    no session
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -110,7 +125,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
 // Opened in a worktree, wtui runs wt there, but names the repo by its main clone.
 func TestHeaderNamesTheRepoByItsMainClone(t *testing.T) {
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat}}
-	m := newModel(f, &fakeReader{}, &fakeOpener{}, feat.Path, nil)
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, &fakeTmux{}, feat.Path, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	if want := []string{feat.Path}; !slices.Equal(f.lists, want) {
 		t.Errorf("listed in %q, want %q", f.lists, want)
@@ -263,7 +278,7 @@ func TestStartupProblemsShowAMessageUntilAKeyIsPressed(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeWt{err: c.listErr}
-			m := newModel(f, &fakeReader{}, &fakeOpener{}, repoDir, c.findErr)
+			m := newModel(f, &fakeReader{}, &fakeOpener{}, &fakeTmux{}, repoDir, c.findErr)
 			if cmd := m.Init(); cmd != nil {
 				m, _ = update(t, m, cmd())
 			}
@@ -284,7 +299,7 @@ func TestStartupProblemsShowAMessageUntilAKeyIsPressed(t *testing.T) {
 // Outside a repo, wt would fail and look too old.
 func TestNotInARepoRunsNoWt(t *testing.T) {
 	f := &fakeWt{}
-	m := newModel(f, &fakeReader{}, &fakeOpener{}, "", fmt.Errorf("%w: /tmp/x", errNotInRepo))
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, &fakeTmux{}, "", fmt.Errorf("%w: /tmp/x", errNotInRepo))
 	if cmd := m.Init(); cmd != nil {
 		update(t, m, cmd())
 	}
@@ -346,7 +361,7 @@ func unwrapped(text string) string { return strings.Join(strings.Fields(text), "
 // The terminal would cut long lines off at its edge, losing part of the message.
 func TestStartupMessageWrapsToTheWindow(t *testing.T) {
 	long := "/a/rather/long/path/to/a/folder/that/is/in/no/repo"
-	m := newModel(&fakeWt{}, &fakeReader{}, &fakeOpener{}, "", fmt.Errorf("%w: %s", errNotInRepo, long))
+	m := newModel(&fakeWt{}, &fakeReader{}, &fakeOpener{}, &fakeTmux{}, "", fmt.Errorf("%w: %s", errNotInRepo, long))
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 10})
 	view := m.View().Content
 	fitsWidth(t, view, 30)
@@ -823,7 +838,7 @@ func TestStatusLineWrapsToTheWindow(t *testing.T) {
 // remove that worktree, folder and all, and still list the repo after.
 func TestRemovingTheWorktreeWtuiWasOpenedInStillReloads(t *testing.T) {
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}
-	m := newModel(f, &fakeReader{}, &fakeOpener{}, feat.Path, nil)
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, &fakeTmux{}, feat.Path, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m = pressXThen(t, m, feat.Path, "y")
 	if want := []string{feat.Path}; !slices.Equal(f.removes, want) {

@@ -18,6 +18,7 @@ type wtClient interface {
 	List(dir string) ([]wt.Worktree, error)
 	Open(dir, path string) error
 	Remove(dir, path string, force bool) (string, error)
+	Pick(dir string, done tea.ExecCallback) tea.Cmd
 }
 
 // repo is one repo's worktrees.
@@ -44,6 +45,7 @@ type model struct {
 	client   wtClient
 	reader   detailReader
 	opener   urlOpener
+	watcher  clientWatcher
 	mode     mode
 	repos    []repo // v1: always one, the working folder's repo
 	selected string // the selected row's path, so it stays put when rows move
@@ -103,8 +105,8 @@ type removed struct {
 
 // newModel is wtui on the repo whose top folder is repoDir, as findRepo
 // found it. If findRepo failed, wtui only shows that.
-func newModel(client wtClient, reader detailReader, opener urlOpener, repoDir string, findErr error) model {
-	m := model{client: client, reader: reader, opener: opener, repos: []repo{{dir: repoDir}}}
+func newModel(client wtClient, reader detailReader, opener urlOpener, watcher clientWatcher, repoDir string, findErr error) model {
+	m := model{client: client, reader: reader, opener: opener, watcher: watcher, repos: []repo{{dir: repoDir}}}
 	if findErr != nil {
 		m.mode, m.message = messageMode, startupMessage(findErr)
 	}
@@ -160,6 +162,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.withOpened(msg)
 	case removed:
 		return m.withRemoved(msg)
+	case picked:
+		return m.withPicked(msg)
 	case detailsRead:
 		return m.withDetails(msg), nil
 	case urlOpened:
@@ -178,6 +182,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.move(1)
 		case "enter":
 			return m, m.open()
+		case "n":
+			return m, m.pick()
 		case "x":
 			// wt never removes the main clone
 			if r, w, ok := m.selection(); ok && !w.MainClone {
@@ -447,7 +453,7 @@ func (m model) bottom() string {
 
 // listKeys is what the keys do in the list, in the order the key line shows
 // them.
-var listKeys = []string{"↑/↓ j/k: move", "enter: open", "x: remove", "o: dev URL", "r: refresh", "q/esc: quit"}
+var listKeys = []string{"↑/↓ j/k: move", "enter: open", "n: picker", "x: remove", "o: dev URL", "r: refresh", "q/esc: quit"}
 
 // keyLine is listKeys three spaces apart, on as many lines as the window's
 // width needs, once that's known: the screen would cut off what's past its

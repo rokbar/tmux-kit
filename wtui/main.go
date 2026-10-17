@@ -26,7 +26,7 @@ func main() {
 	if findErr == nil {
 		repoDir, findErr = findRepo(cwd)
 	}
-	final, err := tea.NewProgram(newModel(wt.New(exe), detail.Reader{}, browser.Opener{}, repoDir, findErr)).Run()
+	final, err := tea.NewProgram(newModel(wt.New(exe), detail.Reader{}, browser.Opener{}, tmuxClient{}, repoDir, findErr)).Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wtui:", err)
 		os.Exit(1)

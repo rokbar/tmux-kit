@@ -31,7 +31,7 @@ func (r *fakeReader) Read(path string) (detail.Details, error) {
 // runs in a command, so keys never wait for git.
 func TestSelectionChangeReadsTheNewlySelectedWorktree(t *testing.T) {
 	r := &fakeReader{}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, &fakeTmux{}, repoDir, nil)
 	m, cmd := update(t, m, run(t, m.Init()))
 	run(t, cmd)
 	for _, k := range []string{"j", "j", "j", "k"} { // the third j is past the last row
@@ -61,7 +61,7 @@ var featDetails = detail.Details{
 // its details, from r, arrived.
 func showing(t *testing.T, f *fakeWt, r *fakeReader, path string) model {
 	t.Helper()
-	m := newModel(f, r, &fakeOpener{}, repoDir, nil)
+	m := newModel(f, r, &fakeOpener{}, &fakeTmux{}, repoDir, nil)
 	m, read := update(t, m, run(t, m.Init()))
 	for range m.rows() {
 		if m.selected == path {
@@ -92,7 +92,7 @@ commits:
   1a2b3c4 work
   5d6e7f8 init
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -134,7 +134,7 @@ var rebaseDetails = detail.Details{
 // worktree's details under another.
 func TestLateDetailsOfAnOldSelectionAreDropped(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails, rebase.Path: rebaseDetails}}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, &fakeTmux{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, readFeat := update(t, m, key("j"))
 	m, readRebase := update(t, m, key("j"))
@@ -161,7 +161,7 @@ func TestLateDetailsOfAnOldSelectionAreDropped(t *testing.T) {
 // read found is what the pane shows, even if the older read arrives after it.
 func TestOlderDetailsOfTheSameWorktreeDoNotReplaceNewerOnes(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, &fakeOpener{}, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, &fakeOpener{}, &fakeTmux{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, older := update(t, m, key("j"))
 	readBefore := run(t, older) // what git found before the commit below
@@ -206,7 +206,7 @@ func TestMissingWorktreeReadsNothingAndShowsAnEmptyPane(t *testing.T) {
   demo--feat         feat  dirty    api         http://localhost:4100
 > demo--gone               missing  gone
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -228,7 +228,7 @@ func TestPaneShowsWhyGitCouldNotRead(t *testing.T) {
 func TestLongGitMessageIsCutToThePanesRoom(t *testing.T) {
 	r := &fakeReader{err: errors.New("git status: fatal: one\nhint: two\nhint: three\nhint: four")}
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 9})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 9})
 	want := "http://localhost:4100\n\ngit status: fatal: one\nhint: two\n\n↑/↓ j/k: move"
 	if view := m.View().Content; !strings.Contains(view, want) || strings.Count(view, "\n") != 9 {
 		t.Errorf("view doesn't show the first 2 lines of git's message in 9 lines:\n%s", view)
@@ -301,7 +301,7 @@ func TestWorktreeGoneMissingEmptiesThePane(t *testing.T) {
 func TestLateDetailsOfAWorktreeGoneMissingAreDropped(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat}}
-	m := newModel(f, r, &fakeOpener{}, repoDir, nil)
+	m := newModel(f, r, &fakeOpener{}, &fakeTmux{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, readFeat := update(t, m, key("j"))
 	missing := feat
@@ -335,7 +335,7 @@ func longDetails() detail.Details {
 func TestLongSectionsAreCutToFitTheWindow(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: longDetails()}}
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 16})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 17})
 	want := `/p/demo
 
   demo (main clone)  main  clean  no session
@@ -351,7 +351,8 @@ commits:
   0000001 commit 1, whose subject goes on and on and on and on and on and on an…
   … 8 more
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh
+q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -378,8 +379,8 @@ func TestPaneFitsThePopup(t *testing.T) {
 				t.Errorf("%dx%d: view doesn't show the row %q:\n%s", size.Width, size.Height, row, view)
 			}
 		}
-		if last := lines[len(lines)-1]; !strings.HasPrefix(last, "↑/↓ j/k: move") {
-			t.Errorf("%dx%d: the last line is %q, want the keys", size.Width, size.Height, last)
+		if last := lines[len(lines)-1]; !strings.HasSuffix(last, "q/esc: quit") || !strings.Contains(view, "\n↑/↓ j/k: move") {
+			t.Errorf("%dx%d: the last line is %q, want the keys to end there", size.Width, size.Height, last)
 		}
 		for _, want := range []string{"1 ahead of origin/feat", "\nchanges:\n", "\ncommits:\n  0000000 commit 0", "more\n"} {
 			if !strings.Contains(view, want) {
@@ -427,7 +428,7 @@ func TestKeysStayAtTheBottom(t *testing.T) {
 	for _, step := range []string{"the main clone's details", "feat's not read yet", "the missing worktree"} {
 		view := m.View().Content
 		lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
-		if len(lines) != 24 || !strings.HasPrefix(lines[23], "↑/↓ j/k: move") {
+		if len(lines) != 24 || !strings.HasSuffix(lines[23], "q/esc: quit") {
 			t.Errorf("with %s, the keys aren't on the window's last line:\n%s", step, view)
 		}
 		m, _ = update(t, m, key("j"))
@@ -440,7 +441,7 @@ func TestKeysStayAtTheBottom(t *testing.T) {
 func TestPaneShrinksToTheRoomTheListLeaves(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 9})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 9})
 	want := `/p/demo
 
   demo (main clone)  main  clean  no session
@@ -449,18 +450,18 @@ func TestPaneShrinksToTheRoomTheListLeaves(t *testing.T) {
 2 ahead, 1 behind origin/feat
 changes: … 2 more
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
 	}
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 6})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 6})
 	want = `/p/demo
 
   demo (main clone)  main  clean  no session
 > demo--feat         feat  dirty  api         http://localhost:4100
 
-↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view with no room for the pane:\n%s\nwant:\n%s", view, want)
@@ -475,7 +476,7 @@ func TestKeyLineBreaksBetweenKeysInANarrowWindow(t *testing.T) {
 	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 64, Height: 16})
 	view := m.View().Content
-	keys := "↑/↓ j/k: move   enter: open   x: remove   o: dev URL\nr: refresh   q/esc: quit\n"
+	keys := "↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL\nr: refresh   q/esc: quit\n"
 	if !strings.HasSuffix(view, "\n\n"+keys) {
 		t.Errorf("view doesn't end with the keys on two lines:\n%s", view)
 	}
@@ -484,8 +485,8 @@ func TestKeyLineBreaksBetweenKeysInANarrowWindow(t *testing.T) {
 		t.Errorf("view is %d lines, want the window's 16:\n%s", lines, view)
 	}
 	// exactly as wide as the keys: one line
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 79, Height: 16})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 91, Height: 16})
 	if view := m.View().Content; !strings.HasSuffix(view, "\n\n"+wideKeyLine) {
-		t.Errorf("view at 79 columns doesn't end with the keys on one line:\n%s", view)
+		t.Errorf("view at 91 columns doesn't end with the keys on one line:\n%s", view)
 	}
 }

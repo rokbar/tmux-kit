@@ -22,13 +22,13 @@ func (o *fakeOpener) Open(url string) error {
 
 // wideKeyLine is the keys under the list, on one line, as in a window wide
 // enough for them.
-const wideKeyLine = "↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit\n"
+const wideKeyLine = "↑/↓ j/k: move   enter: open   n: picker   x: remove   o: dev URL   r: refresh   q/esc: quit\n"
 
 // startedOpening is wtui on repoDir, opening dev URLs with o, once its first
 // list, from f, has arrived.
 func startedOpening(t *testing.T, f *fakeWt, o *fakeOpener) model {
 	t.Helper()
-	m := newModel(f, &fakeReader{}, o, repoDir, nil)
+	m := newModel(f, &fakeReader{}, o, &fakeTmux{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	return m
 }
