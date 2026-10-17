@@ -96,11 +96,18 @@ $(screen)"
 }
 
 # wtui_exited: whether wtui has exited (its pane is dead) and tmux has its exit
-# status. tmux marks the pane dead once its terminal closes, which can be before
-# it has reaped wtui and so knows the status.
+# status. tmux marks the pane dead once its terminal closes, but only has the
+# status once it has reaped wtui, on SIGCHLD. Before 3.6, tmux can lose that
+# signal (libutempter sets SIGCHLD to SIG_DFL while it updates utmp for the
+# closing pane), and wtui stays a zombie, so a dead pane without a status gets
+# the server a SIGCHLD of its own, as tmux 3.6 does itself.
 wtui_exited() {
   case "$(tmux display-message -p -t "$wtui_pane" '#{pane_dead} #{pane_dead_status}#{pane_dead_signal}')" in
     "1 "?*) ;;
+    "1 ")
+      kill -CHLD "$(tmux display-message -p '#{pid}')" 2>/dev/null || true
+      return 1
+      ;;
     *) return 1 ;;
   esac
 }
