@@ -42,6 +42,7 @@ const (
 // model is wtui's state.
 type model struct {
 	client   wtClient
+	reader   detailReader
 	mode     mode
 	repos    []repo // v1: always one, the working folder's repo
 	selected string // the selected row's path, so it stays put when rows move
@@ -53,6 +54,8 @@ type model struct {
 	handoff  string // the session to take the terminal to once wtui has quit
 	// what confirmMode and refusedMode ask about
 	removing removal
+	pane     detailsRead // what git last read of the selected worktree
+	reads    int         // how many times wtui has asked git to read one
 }
 
 // removal is the worktree a prompt asks about removing, and its repo's folder.
@@ -99,8 +102,8 @@ type removed struct {
 
 // newModel is wtui on the repo whose top folder is repoDir, as findRepo
 // found it. If findRepo failed, wtui only shows that.
-func newModel(client wtClient, repoDir string, findErr error) model {
-	m := model{client: client, repos: []repo{{dir: repoDir}}}
+func newModel(client wtClient, reader detailReader, repoDir string, findErr error) model {
+	m := model{client: client, reader: reader, repos: []repo{{dir: repoDir}}}
 	if findErr != nil {
 		m.mode, m.message = messageMode, startupMessage(findErr)
 	}
@@ -151,11 +154,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case listed:
-		return m.withList(msg), nil
+		return m.withList(msg)
 	case opened:
 		return m.withOpened(msg)
 	case removed:
-		return m.withRemoved(msg), nil
+		return m.withRemoved(msg)
+	case detailsRead:
+		return m.withDetails(msg), nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" { // raw mode turns ctrl+c into a key, not SIGINT
 			return m, tea.Quit
@@ -165,9 +170,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "up", "k":
-			m = m.move(-1)
+			return m.move(-1)
 		case "down", "j":
-			m = m.move(1)
+			return m.move(1)
 		case "enter":
 			return m, m.open()
 		case "x":
@@ -185,16 +190,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// withList takes in a repo's new list. If wt failed, wtui shows why: at
-// start-up instead of the list, later in the status line under the last list.
-func (m model) withList(l listed) model {
+// withList takes in a repo's new list, and reads the selected worktree's
+// details again. If wt failed, wtui shows why: at start-up instead of the
+// list, later in the status line under the last list.
+func (m model) withList(l listed) (model, tea.Cmd) {
 	if l.err != nil && !m.loaded {
 		m.mode, m.message = messageMode, startupMessage(l.err)
-		return m
+		return m, nil
 	}
 	if l.err != nil {
 		m.status = l.err.Error()
-		return m
+		return m, nil
 	}
 	m.loaded = true
 	for i := range m.repos {
@@ -208,17 +214,17 @@ func (m model) withList(l listed) model {
 	if rows := m.rows(); len(rows) > 0 && m.selectedIndex() < 0 {
 		m.selected = rows[0].Path
 	}
-	return m
+	return m.readDetails()
 }
 
 // withOpened takes in the list that followed opening a worktree's session,
 // then quits to hand the terminal off to that session. If wt failed, or lists
 // no session there, wtui stays and the status line says so.
 func (m model) withOpened(o opened) (model, tea.Cmd) {
-	m = m.withList(o.list)
+	m, read := m.withList(o.list)
 	if o.err != nil {
 		m.status = o.err.Error()
-		return m, nil
+		return m, read
 	}
 	if o.list.err != nil {
 		return m, nil // withList put it in the status line
@@ -227,7 +233,7 @@ func (m model) withOpened(o opened) (model, tea.Cmd) {
 	i := slices.IndexFunc(o.list.rows, at(o.path))
 	if i < 0 || o.list.rows[i].Session == "" {
 		m.status = "no session started in " + o.path
-		return m, nil
+		return m, read
 	}
 	m.handoff = o.list.rows[i].Session
 	return m, tea.Quit
@@ -290,8 +296,8 @@ func (m model) remove(force bool) tea.Cmd {
 // what wt said, that it removed the worktree or why it couldn't, then why the
 // list failed, if it did. If wt refused because something would be lost, its
 // reasons get a screen of their own instead, which asks whether to force.
-func (m model) withRemoved(r removed) model {
-	m = m.withList(r.list)
+func (m model) withRemoved(r removed) (model, tea.Cmd) {
+	m, read := m.withList(r.list)
 	var status []string
 	switch {
 	case errors.Is(r.err, wt.ErrSafetyRefusal):
@@ -306,7 +312,7 @@ func (m model) withRemoved(r removed) model {
 		status = append(status, r.list.err.Error())
 	}
 	m.status = strings.Join(status, "\n")
-	return m
+	return m, read
 }
 
 // open has wt open the selected worktree's session, then lists its repo again,
@@ -352,12 +358,19 @@ func (m model) selectedIndex() int {
 	return slices.IndexFunc(m.rows(), at(m.selected))
 }
 
-// move selects the row by rows away, stopping at the first and last rows.
-func (m model) move(by int) model {
-	if rows := m.rows(); len(rows) > 0 {
-		m.selected = rows[max(0, min(len(rows)-1, m.selectedIndex()+by))].Path
+// move selects the row by rows away, stopping at the first and last rows, and
+// reads the details of the worktree it selects.
+func (m model) move(by int) (model, tea.Cmd) {
+	rows := m.rows()
+	if len(rows) == 0 {
+		return m, nil
 	}
-	return m
+	was := m.selected
+	m.selected = rows[max(0, min(len(rows)-1, m.selectedIndex()+by))].Path
+	if m.selected == was {
+		return m, nil
+	}
+	return m.readDetails()
 }
 
 func (m model) View() tea.View {
@@ -390,16 +403,33 @@ func (m model) View() tea.View {
 		}
 	}
 	b.WriteString("\n")
+	bottom := m.bottom()
+	room := -1 // no limit while the window's height isn't known
+	if m.height > 0 {
+		// what the list and the bottom lines leave, less a blank line
+		room = max(0, m.height-strings.Count(b.String(), "\n")-strings.Count(bottom, "\n")-1)
+	}
+	if pane := m.paneLines(room); len(pane) > 0 || room > 0 {
+		// filled out, so the bottom lines stay at the bottom of the window
+		for len(pane) < room {
+			pane = append(pane, "")
+		}
+		b.WriteString(strings.Join(pane, "\n") + "\n\n")
+	}
+	return screen(b.String() + bottom)
+}
+
+// bottom is what's under the list and the detail pane: the prompt asking
+// whether to remove a worktree, or the status line and the keys.
+func (m model) bottom() string {
 	if m.mode == confirmMode {
-		b.WriteString(m.removing.question() + "\n")
-		b.WriteString("y: remove   n/q/esc: cancel\n")
-		return screen(b.String())
+		return m.removing.question() + "\ny: remove   n/q/esc: cancel\n"
 	}
+	var status string
 	if m.status != "" {
-		b.WriteString(m.wrap(m.status) + "\n")
+		status = m.wrap(m.status) + "\n"
 	}
-	b.WriteString("↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit\n")
-	return screen(b.String())
+	return status + "↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit\n"
 }
 
 // wrap wraps text to the window's width, once that's known, breaking paths

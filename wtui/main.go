@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rokbar/tmux-kit/wtui/internal/detail"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
@@ -24,7 +25,7 @@ func main() {
 	if findErr == nil {
 		repoDir, findErr = findRepo(cwd)
 	}
-	final, err := tea.NewProgram(newModel(wt.New(exe), repoDir, findErr)).Run()
+	final, err := tea.NewProgram(newModel(wt.New(exe), detail.Reader{}, repoDir, findErr)).Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wtui:", err)
 		os.Exit(1)

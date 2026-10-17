@@ -5,7 +5,8 @@
 # the worktree and ends its session. wtui runs in that worktree's folder, as
 # the prefix w popup does when opened from its session, so it has to go on
 # listing the repo once that folder is gone. wt's wording is free to change
-# (wt's own tests pin it), so this only looks for what it names.
+# (wt's own tests pin it), so this only looks for what it names. On the way,
+# the detail pane shows what git says about the selected worktree.
 set -euo pipefail
 # shellcheck source=test/lib/wtui.sh
 . "$(dirname "$0")/lib/wtui.sh"
@@ -25,6 +26,8 @@ start_wtui "$feat"
 wait_for "> demo (main clone)"
 press j
 wait_for "> demo--feat "
+# the detail pane shows what git says about it
+wait_for "?? wip.txt"
 press x
 wait_for "remove demo--feat and end session feat?"
 press y
