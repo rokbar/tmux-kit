@@ -31,7 +31,7 @@ func (r *fakeReader) Read(path string) (detail.Details, error) {
 // runs in a command, so keys never wait for git.
 func TestSelectionChangeReadsTheNewlySelectedWorktree(t *testing.T) {
 	r := &fakeReader{}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, repoDir, nil)
 	m, cmd := update(t, m, run(t, m.Init()))
 	run(t, cmd)
 	for _, k := range []string{"j", "j", "j", "k"} { // the third j is past the last row
@@ -61,7 +61,7 @@ var featDetails = detail.Details{
 // its details, from r, arrived.
 func showing(t *testing.T, f *fakeWt, r *fakeReader, path string) model {
 	t.Helper()
-	m := newModel(f, r, repoDir, nil)
+	m := newModel(f, r, &fakeOpener{}, repoDir, nil)
 	m, read := update(t, m, run(t, m.Init()))
 	for range m.rows() {
 		if m.selected == path {
@@ -92,7 +92,7 @@ commits:
   1a2b3c4 work
   5d6e7f8 init
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -134,7 +134,7 @@ var rebaseDetails = detail.Details{
 // worktree's details under another.
 func TestLateDetailsOfAnOldSelectionAreDropped(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails, rebase.Path: rebaseDetails}}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}, r, &fakeOpener{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, readFeat := update(t, m, key("j"))
 	m, readRebase := update(t, m, key("j"))
@@ -161,7 +161,7 @@ func TestLateDetailsOfAnOldSelectionAreDropped(t *testing.T) {
 // read found is what the pane shows, even if the older read arrives after it.
 func TestOlderDetailsOfTheSameWorktreeDoNotReplaceNewerOnes(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
-	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, repoDir, nil)
+	m := newModel(&fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, &fakeOpener{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, older := update(t, m, key("j"))
 	readBefore := run(t, older) // what git found before the commit below
@@ -206,7 +206,7 @@ func TestMissingWorktreeReadsNothingAndShowsAnEmptyPane(t *testing.T) {
   demo--feat         feat  dirty    api         http://localhost:4100
 > demo--gone               missing  gone
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -301,7 +301,7 @@ func TestWorktreeGoneMissingEmptiesThePane(t *testing.T) {
 func TestLateDetailsOfAWorktreeGoneMissingAreDropped(t *testing.T) {
 	r := &fakeReader{details: map[string]detail.Details{feat.Path: featDetails}}
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat}}
-	m := newModel(f, r, repoDir, nil)
+	m := newModel(f, r, &fakeOpener{}, repoDir, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m, readFeat := update(t, m, key("j"))
 	missing := feat
@@ -351,7 +351,7 @@ commits:
   0000001 commit 1, whose subject goes on and on and on and on and on and on an…
   … 8 more
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -449,7 +449,7 @@ func TestPaneShrinksToTheRoomTheListLeaves(t *testing.T) {
 2 ahead, 1 behind origin/feat
 changes: … 2 more
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view:\n%s\nwant:\n%s", view, want)
@@ -460,9 +460,32 @@ changes: … 2 more
   demo (main clone)  main  clean  no session
 > demo--feat         feat  dirty  api         http://localhost:4100
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if view := m.View().Content; view != want {
 		t.Errorf("view with no room for the pane:\n%s\nwant:\n%s", view, want)
+	}
+}
+
+// In a popup narrower than the key line (64 columns in an 80×24 terminal),
+// the screen would cut the last keys off. They go on to a second line
+// instead, each key whole, and the pane makes room for it.
+func TestKeyLineBreaksBetweenKeysInANarrowWindow(t *testing.T) {
+	r := &fakeReader{details: map[string]detail.Details{feat.Path: longDetails()}}
+	m := showing(t, &fakeWt{rows: []wt.Worktree{mainClone, feat}}, r, feat.Path)
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 64, Height: 16})
+	view := m.View().Content
+	keys := "↑/↓ j/k: move   enter: open   x: remove   o: dev URL\nr: refresh   q/esc: quit\n"
+	if !strings.HasSuffix(view, "\n\n"+keys) {
+		t.Errorf("view doesn't end with the keys on two lines:\n%s", view)
+	}
+	fitsWidth(t, keys, 64)
+	if lines := strings.Count(view, "\n"); lines != 16 {
+		t.Errorf("view is %d lines, want the window's 16:\n%s", lines, view)
+	}
+	// exactly as wide as the keys: one line
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 79, Height: 16})
+	if view := m.View().Content; !strings.HasSuffix(view, "\n\n"+wideKeyLine) {
+		t.Errorf("view at 79 columns doesn't end with the keys on one line:\n%s", view)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/detail"
-	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
 // detailReader is what the detail pane needs from git: a detail.Reader, or a
@@ -31,8 +30,8 @@ type detailsRead struct {
 // readDetails has git read the selected worktree's details, without waiting
 // for it. A missing worktree has no folder to read: its pane is empty.
 func (m model) readDetails() (model, tea.Cmd) {
-	_, w, ok := m.selection()
-	if !ok || w.State == wt.Missing {
+	_, w, ok := m.selectionThere()
+	if !ok {
 		m.pane = detailsRead{}
 		return m, nil
 	}
@@ -48,7 +47,7 @@ func (m model) readDetails() (model, tea.Cmd) {
 // selection may have moved on since. Reads run side by side, so an older one
 // can arrive after a newer one; only the newest counts.
 func (m model) withDetails(r detailsRead) model {
-	if _, w, ok := m.selection(); ok && w.Path == r.path && w.State != wt.Missing && r.n == m.reads {
+	if _, w, ok := m.selectionThere(); ok && w.Path == r.path && r.n == m.reads {
 		m.pane = r
 	}
 	return m

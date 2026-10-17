@@ -43,6 +43,7 @@ const (
 type model struct {
 	client   wtClient
 	reader   detailReader
+	opener   urlOpener
 	mode     mode
 	repos    []repo // v1: always one, the working folder's repo
 	selected string // the selected row's path, so it stays put when rows move
@@ -50,7 +51,7 @@ type model struct {
 	width    int    // the terminal's width; 0 until it's known
 	height   int    // the terminal's height; 0 until it's known
 	message  string // messageMode's text
-	status   string // the status line: what wt said last, or what went wrong, until r
+	status   string // the status line: what wt or the opener said last, a hint, or what went wrong, until r
 	handoff  string // the session to take the terminal to once wtui has quit
 	// what confirmMode and refusedMode ask about
 	removing removal
@@ -102,8 +103,8 @@ type removed struct {
 
 // newModel is wtui on the repo whose top folder is repoDir, as findRepo
 // found it. If findRepo failed, wtui only shows that.
-func newModel(client wtClient, reader detailReader, repoDir string, findErr error) model {
-	m := model{client: client, reader: reader, repos: []repo{{dir: repoDir}}}
+func newModel(client wtClient, reader detailReader, opener urlOpener, repoDir string, findErr error) model {
+	m := model{client: client, reader: reader, opener: opener, repos: []repo{{dir: repoDir}}}
 	if findErr != nil {
 		m.mode, m.message = messageMode, startupMessage(findErr)
 	}
@@ -161,6 +162,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.withRemoved(msg)
 	case detailsRead:
 		return m.withDetails(msg), nil
+	case urlOpened:
+		return m.withURLOpened(msg), nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" { // raw mode turns ctrl+c into a key, not SIGINT
 			return m, tea.Quit
@@ -180,6 +183,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if r, w, ok := m.selection(); ok && !w.MainClone {
 				m.mode, m.removing = confirmMode, removal{dir: r.dir, worktree: w}
 			}
+		case "o":
+			return m.openDevURL()
 		case "r":
 			m.status = ""
 			return m, m.reload()
@@ -318,8 +323,8 @@ func (m model) withRemoved(r removed) (model, tea.Cmd) {
 // open has wt open the selected worktree's session, then lists its repo again,
 // whether or not that worked. A missing worktree has no folder to open one in.
 func (m model) open() tea.Cmd {
-	r, w, ok := m.selection()
-	if !ok || w.State == wt.Missing {
+	r, w, ok := m.selectionThere()
+	if !ok {
 		return nil
 	}
 	return func() tea.Msg {
@@ -337,6 +342,14 @@ func (m model) selection() (repo, wt.Worktree, bool) {
 		}
 	}
 	return repo{}, wt.Worktree{}, false
+}
+
+// selectionThere is the selected row and the repo it's in, as selection, if
+// the worktree's folder is there: ok is false for a missing worktree too,
+// which has no folder to act or look in.
+func (m model) selectionThere() (repo, wt.Worktree, bool) {
+	r, w, ok := m.selection()
+	return r, w, ok && w.State != wt.Missing
 }
 
 // at matches the row for the worktree at path.
@@ -429,7 +442,34 @@ func (m model) bottom() string {
 	if m.status != "" {
 		status = m.wrap(m.status) + "\n"
 	}
-	return status + "↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit\n"
+	return status + m.keyLine()
+}
+
+// listKeys is what the keys do in the list, in the order the key line shows
+// them.
+var listKeys = []string{"↑/↓ j/k: move", "enter: open", "x: remove", "o: dev URL", "r: refresh", "q/esc: quit"}
+
+// keyLine is listKeys three spaces apart, on as many lines as the window's
+// width needs, once that's known: the screen would cut off what's past its
+// edge. A key is never split over two lines.
+func (m model) keyLine() string {
+	var b strings.Builder
+	lineWidth := 0 // of the line so far
+	for i, k := range listKeys {
+		keyWidth := ansi.StringWidth(k)
+		switch {
+		case i == 0:
+		case m.width > 0 && lineWidth+3+keyWidth > m.width:
+			b.WriteString("\n")
+			lineWidth = 0
+		default:
+			b.WriteString("   ")
+			lineWidth += 3
+		}
+		b.WriteString(k)
+		lineWidth += keyWidth
+	}
+	return b.String() + "\n"
 }
 
 // wrap wraps text to the window's width, once that's known, breaking paths

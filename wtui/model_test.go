@@ -100,7 +100,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
   demo--gone                   missing  gone
   demo--rebase       detached  dirty    no session
 
-↑/↓ j/k: move   enter: open   x: remove   r: refresh   q/esc: quit
+↑/↓ j/k: move   enter: open   x: remove   o: dev URL   r: refresh   q/esc: quit
 `
 	if got := m.View().Content; got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -110,7 +110,7 @@ func TestStartListsTheRepoAndShowsEachWorktree(t *testing.T) {
 // Opened in a worktree, wtui runs wt there, but names the repo by its main clone.
 func TestHeaderNamesTheRepoByItsMainClone(t *testing.T) {
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat}}
-	m := newModel(f, &fakeReader{}, feat.Path, nil)
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, feat.Path, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	if want := []string{feat.Path}; !slices.Equal(f.lists, want) {
 		t.Errorf("listed in %q, want %q", f.lists, want)
@@ -139,9 +139,7 @@ func key(name string) tea.KeyPressMsg {
 // started is wtui on repoDir once its first list, from f, has arrived.
 func started(t *testing.T, f *fakeWt) model {
 	t.Helper()
-	m := newModel(f, &fakeReader{}, repoDir, nil)
-	m, _ = update(t, m, run(t, m.Init()))
-	return m
+	return startedOpening(t, f, &fakeOpener{})
 }
 
 // selectedRow is the view's line for the selected row.
@@ -265,7 +263,7 @@ func TestStartupProblemsShowAMessageUntilAKeyIsPressed(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeWt{err: c.listErr}
-			m := newModel(f, &fakeReader{}, repoDir, c.findErr)
+			m := newModel(f, &fakeReader{}, &fakeOpener{}, repoDir, c.findErr)
 			if cmd := m.Init(); cmd != nil {
 				m, _ = update(t, m, cmd())
 			}
@@ -286,7 +284,7 @@ func TestStartupProblemsShowAMessageUntilAKeyIsPressed(t *testing.T) {
 // Outside a repo, wt would fail and look too old.
 func TestNotInARepoRunsNoWt(t *testing.T) {
 	f := &fakeWt{}
-	m := newModel(f, &fakeReader{}, "", fmt.Errorf("%w: /tmp/x", errNotInRepo))
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, "", fmt.Errorf("%w: /tmp/x", errNotInRepo))
 	if cmd := m.Init(); cmd != nil {
 		update(t, m, cmd())
 	}
@@ -348,7 +346,7 @@ func unwrapped(text string) string { return strings.Join(strings.Fields(text), "
 // The terminal would cut long lines off at its edge, losing part of the message.
 func TestStartupMessageWrapsToTheWindow(t *testing.T) {
 	long := "/a/rather/long/path/to/a/folder/that/is/in/no/repo"
-	m := newModel(&fakeWt{}, &fakeReader{}, "", fmt.Errorf("%w: %s", errNotInRepo, long))
+	m := newModel(&fakeWt{}, &fakeReader{}, &fakeOpener{}, "", fmt.Errorf("%w: %s", errNotInRepo, long))
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 10})
 	view := m.View().Content
 	fitsWidth(t, view, 30)
@@ -825,7 +823,7 @@ func TestStatusLineWrapsToTheWindow(t *testing.T) {
 // remove that worktree, folder and all, and still list the repo after.
 func TestRemovingTheWorktreeWtuiWasOpenedInStillReloads(t *testing.T) {
 	f := &fakeWt{rows: []wt.Worktree{mainClone, feat, rebase}}
-	m := newModel(f, &fakeReader{}, feat.Path, nil)
+	m := newModel(f, &fakeReader{}, &fakeOpener{}, feat.Path, nil)
 	m, _ = update(t, m, run(t, m.Init()))
 	m = pressXThen(t, m, feat.Path, "y")
 	if want := []string{feat.Path}; !slices.Equal(f.removes, want) {
