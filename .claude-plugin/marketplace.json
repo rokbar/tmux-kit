@@ -1,0 +1,14 @@
+{
+  "name": "tmux-kit",
+  "description": "tmux-kit's Claude Code plugin",
+  "owner": {
+    "name": "Rokas Baršauskas"
+  },
+  "plugins": [
+    {
+      "name": "agent-state",
+      "source": "./claude-plugin",
+      "description": "Keeps each agent's state on its tmux pane (@agent_state: working, needs-you or done), for wtui or tmux show -p"
+    }
+  ]
+}

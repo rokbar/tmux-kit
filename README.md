@@ -122,3 +122,35 @@ To use a different editor for `prefix e`, put
 [`config.example.sh`](config.example.sh) for the worktree location, folder
 separator, remote, git UI window, dev script and port, and the files that get
 copied or shared between worktrees.
+
+## Claude Code plugin
+
+Optional: the `agent-state` plugin keeps each Claude Code agent's state on its
+tmux pane, for wtui to show, or for you with `tmux show -p`:
+
+| Pane option | Value |
+| --- | --- |
+| `@agent_state` | `working` once you submit a prompt, and after each tool call (so again once you answer a permission prompt); `needs-you` while it waits on you to answer a permission prompt or a question (its own or an MCP server's); `done` when it finishes its turn |
+| `@agent_state_at` | when that was set, in seconds since the epoch |
+
+Quitting Claude Code (or `/clear`) unsets both. Claude Code reports a
+prompt or question only once it has waited about six seconds with nothing
+typed, so `needs-you` comes that much later (answer sooner and it stays
+`working`); its idle reminders change nothing. The plugin is hooks only, each
+one tmux command against the agent's pane: outside tmux they do nothing, they
+never fail or print anything, and they run alongside your own hooks. It edits
+no settings file.
+
+Install it in Claude Code from this repo's marketplace:
+
+```
+/plugin marketplace add rokbar/tmux-kit
+/plugin install agent-state@tmux-kit
+```
+
+Or from a local checkout: `/plugin marketplace add /path/to/tmux-kit`, then
+the same install. Claude Code then loads the plugin from the checkout itself,
+so a `git pull` takes effect from the next session. From your shell, it's
+`claude plugin marketplace add …` and `claude plugin install …`. To list it in
+a marketplace of your own instead, give its entry the source
+`{"source": "git-subdir", "url": "rokbar/tmux-kit", "path": "claude-plugin"}`.

@@ -21,8 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install tmux and git
-        run: sudo apt-get update && sudo apt-get install -y tmux git
+      # jq: test/agent-state-plugin.sh reads the plugin's hooks.json
+      - name: Install tmux, git and jq
+        run: sudo apt-get update && sudo apt-get install -y tmux git jq
 
       - name: Install fzf from its GitHub release
         working-directory: ${{ runner.temp }}

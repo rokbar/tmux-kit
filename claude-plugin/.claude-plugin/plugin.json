@@ -1,0 +1,10 @@
+{
+  "name": "agent-state",
+  "description": "Keeps each agent's state on its tmux pane (@agent_state: working, needs-you or done), for wtui or tmux show -p. Hooks only; does nothing outside tmux.",
+  "author": {
+    "name": "Rokas Baršauskas"
+  },
+  "homepage": "https://github.com/rokbar/tmux-kit",
+  "repository": "https://github.com/rokbar/tmux-kit",
+  "keywords": ["tmux", "wtui", "hooks"]
+}
