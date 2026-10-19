@@ -32,11 +32,13 @@ const SidebarWidth = 30
 // nested client's own mouse mode. set-clipboard passes the nested client's
 // OSC 52 copies on to the terminal. The terminal's title is the right pane's,
 // which the nested client sets (the session shown, by default), whichever
-// side has focus. The server exits once the terminal, its only client, goes.
+// side has focus. Focus events reach the panes, so the sidebar knows when it
+// gets focus. The server exits once the terminal, its only client, goes.
 const config = `set -g prefix None
 set -g prefix2 None
 set -g status off
 set -g mouse on
+set -g focus-events on
 set -g set-titles on
 set -g set-titles-string '#{P:#{?pane_at_right,#{pane_title},}}'
 set -s escape-time 0
@@ -138,11 +140,11 @@ func isExitNote(said string) bool {
 // activity, or "" if it has none (or isn't running). Of sessions used in the
 // same second, the first by name.
 func mostRecent(normal *tmux.Client) string {
-	sessions, _ := normal.Sessions()
+	snap, _ := normal.Snapshot()
 	var best *tmux.Session
-	for i, s := range sessions {
+	for i, s := range snap.Sessions {
 		if best == nil || s.Activity.After(best.Activity) {
-			best = &sessions[i]
+			best = &snap.Sessions[i]
 		}
 	}
 	if best == nil {

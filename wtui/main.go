@@ -23,6 +23,7 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/browser"
 	"github.com/rokbar/tmux-kit/wtui/internal/detail"
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
+	gitrepo "github.com/rokbar/tmux-kit/wtui/internal/repo" // the popup has its own repo
 	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
@@ -74,7 +75,7 @@ func runSidebar() error {
 	if normal.Nested, err = h.RightTTY(); err != nil {
 		return errors.Join(err, h.Close())
 	}
-	_, err = tea.NewProgram(sidebar.New(h, normal, key)).Run()
+	_, err = tea.NewProgram(sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key)).Run()
 	return errors.Join(err, h.Close())
 }
 

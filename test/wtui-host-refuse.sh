@@ -23,10 +23,11 @@ refused() {
 
 refused '*prefix s*prefix W*' env TMUX=/tmp/tmux-0/default,1,0 "$wtui"
 
-# a tmux that's 3.5a, with no server running
+# a tmux that's 3.5a, with no server running (wtui's queries start with -u)
 mkdir "$tmp/stubs"
 cat >"$tmp/stubs/tmux" <<'EOF'
 #!/bin/sh
+[ "$1" = -u ] && shift
 case "$1" in
   -V) echo "tmux 3.5a" ;;
   *) echo "no server running on /tmp/tmux-0/default" >&2; exit 1 ;;
@@ -38,6 +39,7 @@ refused '*needs tmux 3.6 or newer*3.5a*' env PATH="$tmp/stubs:$PATH" "$wtui"
 # The normal server's version counts: one started before tmux was upgraded
 cat >"$tmp/stubs/tmux" <<'EOF'
 #!/bin/sh
+[ "$1" = -u ] && shift
 case "$1" in
   -V) echo "tmux 3.8" ;;
   display-message) echo "3.4" ;;

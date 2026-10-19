@@ -24,6 +24,11 @@
 #   drag <t> <col> <row> <col> <row>
 #                                a left-button drag from one cell to another
 #   screen <t>                   what <t> shows
+#   sidebar_text <t>             what <t>'s sidebar shows, without trailing
+#                                spaces or blank lines
+#   sidebar_shows <t> <text>     whether that's <text>
+#   cursor_row <t>               the sidebar's row in reverse video, without
+#                                its styles: its cursor, while it has focus
 #   term <tmux args>             tmux on the terminal server
 #   host <t> <tmux args>         tmux on <t>'s host server
 #   sidebar_pane <t>, right_pane <t>
@@ -152,6 +157,29 @@ drag() {
 }
 
 screen() { term capture-pane -p -t "=$1:"; }
+
+# awk drops trailing spaces, and blank lines unless something follows them.
+sidebar_text() {
+  host "$1" capture-pane -p -t "$(sidebar_pane "$1")" |
+    awk '{ sub(/ +$/, "") } $0 == "" { blank++; next } { while (blank) { print ""; blank-- } print }'
+}
+sidebar_shows() { [ "$(sidebar_text "$1")" = "$2" ]; }
+
+# Under the header, the row with an SGR 7 (reverse) among its styles. ESC
+# becomes ~ first, so awk needn't match it.
+cursor_row() {
+  host "$1" capture-pane -e -p -t "$(sidebar_pane "$1")" | tr '\033' '~' | awk '
+    NR > 1 {
+      line = $0; reverse = 0
+      while (match(line, /~\[[0-9;]*m/)) {
+        n = split(substr(line, RSTART + 2, RLENGTH - 3), p, ";")
+        for (i = 1; i <= n; i++) if (p[i] == "7") reverse = 1
+        line = substr(line, 1, RSTART - 1) substr(line, RSTART + RLENGTH)
+      }
+      sub(/ +$/, "", line)
+      if (reverse) print line
+    }'
+}
 
 # The sidebar is the pane running `wtui sidebar`; the right side, the other.
 # awk reads to the end, so tmux never writes into a closed pipe (pipefail).

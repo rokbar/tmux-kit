@@ -32,12 +32,32 @@ type Client struct {
 	Nested string
 }
 
+// Snapshot is the normal server's sessions and their windows, as one moment
+// saw them.
+type Snapshot struct {
+	Sessions []Session // by name
+}
+
 // Session is a session on the normal server.
 type Session struct {
 	ID, Name string
+	// Path is the session's start folder (session_path).
+	Path string
 	// Activity is when the session was last used (session_activity), to the
 	// second.
 	Activity time.Time
+	// Attached is how many clients are attached to it.
+	Attached int
+	Windows  []Window // by index
+}
+
+// Window is a session's window.
+type Window struct {
+	ID    string
+	Index int
+	Name  string
+	// Active is whether it's its session's current window.
+	Active bool
 }
 
 // Version is the normal server's tmux version (e.g. "3.6a"), or, with no
@@ -97,39 +117,72 @@ func (c *Client) Key() string {
 	return DefaultKey
 }
 
-// Sessions are the normal server's sessions, by name.
-func (c *Client) Sessions() ([]Session, error) {
-	// space-separated: tmux turns a tab into _ without a UTF-8 locale. Ids
-	// ($1) and times have no spaces; names may.
-	out, err := c.output("list-sessions", "-F", "#{session_id} #{session_activity} #{session_name}")
+// Snapshot is the normal server's sessions and windows now, from one tmux
+// command.
+func (c *Client) Snapshot() (Snapshot, error) {
+	// Tab-separated, free text last: tmux escapes tabs in names, and output
+	// keeps them (and UTF-8) since output runs tmux with -u.
+	out, err := c.output(
+		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_attached}\t#{session_name}\t#{session_path}", ";",
+		"list-windows", "-a", "-F", "W\t#{session_id}\t#{window_id}\t#{window_index}\t#{window_active}\t#{window_name}")
 	if err != nil {
-		return nil, err
+		return Snapshot{}, err
 	}
-	var sessions []Session
+	var snap Snapshot
+	at := map[string]int{} // a session's place in snap.Sessions, by id
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.SplitN(line, " ", 3)
-		if len(f) < 3 {
+		f := strings.SplitN(line, "\t", 6)
+		if len(f) < 6 {
 			continue
 		}
-		secs, _ := strconv.ParseInt(f[1], 10, 64)
-		sessions = append(sessions, Session{ID: f[0], Name: f[2], Activity: time.Unix(secs, 0)})
+		switch f[0] {
+		case "S":
+			secs, _ := strconv.ParseInt(f[2], 10, 64)
+			attached, _ := strconv.Atoi(f[3])
+			at[f[1]] = len(snap.Sessions)
+			snap.Sessions = append(snap.Sessions, Session{
+				ID: f[1], Name: f[4], Path: f[5], Activity: time.Unix(secs, 0), Attached: attached,
+			})
+		case "W":
+			i, ok := at[f[1]]
+			if !ok {
+				continue
+			}
+			index, _ := strconv.Atoi(f[3])
+			s := &snap.Sessions[i]
+			s.Windows = append(s.Windows, Window{ID: f[2], Index: index, Name: f[5], Active: f[4] == "1"})
+		}
 	}
-	return sessions, nil
+	return snap, nil
 }
 
-// ActiveSession is the name of the session the nested client shows, or ""
+// ActiveSession is the id of the session the nested client shows, or ""
 // while it shows none.
 func (c *Client) ActiveSession() (string, error) {
-	out, err := c.output("list-clients", "-F", "#{client_tty} #{session_name}")
+	out, err := c.output("list-clients", "-F", "#{client_tty} #{session_id}")
 	if err != nil {
 		return "", err
 	}
 	for _, line := range strings.Split(out, "\n") {
-		if name, ok := strings.CutPrefix(line, c.Nested+" "); ok && c.Nested != "" {
-			return name, nil
+		if id, ok := strings.CutPrefix(line, c.Nested+" "); ok && c.Nested != "" {
+			return id, nil
 		}
 	}
 	return "", nil
+}
+
+// Show shows session (an id) on the nested client, at its window window (an
+// id) unless that's "".
+func (c *Client) Show(session, window string) error {
+	if c.Nested == "" {
+		return errors.New("no nested client to show a session on")
+	}
+	target := session
+	if window != "" {
+		target += ":" + window
+	}
+	_, err := c.output("switch-client", "-c", c.Nested, "-t", target)
+	return err
 }
 
 // Attach runs the nested client on this process's terminal: a tmux client
@@ -157,9 +210,10 @@ func (c *Client) Attach(session string) (detached bool, said string) {
 }
 
 // output is what tmux printed for args, trimmed. When tmux fails, the error
-// is what it said on stderr.
+// is what it said on stderr. tmux runs with -u, so its output keeps tabs
+// and UTF-8 as they are: without a UTF-8 locale, it turns them into _.
 func (c *Client) output(args ...string) (string, error) {
-	cmd := c.command(args...)
+	cmd := c.command(append([]string{"-u"}, args...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
