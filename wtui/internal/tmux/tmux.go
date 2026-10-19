@@ -36,10 +36,11 @@ type Client struct {
 	Nested string
 }
 
-// Snapshot is the normal server's sessions and their windows, as one moment
-// saw them.
+// Snapshot is the normal server's sessions and their windows, and its
+// panes' agent states, as one moment saw them.
 type Snapshot struct {
 	Sessions []Session // by name
+	Agents   []Agent
 }
 
 // Session is a session on the normal server.
@@ -150,14 +151,15 @@ func (c *Client) Editor() (string, error) {
 	return "", nil
 }
 
-// Snapshot is the normal server's sessions and windows now, from one tmux
-// command.
+// Snapshot is the normal server's sessions, windows and agent states now,
+// from one tmux command.
 func (c *Client) Snapshot() (Snapshot, error) {
 	// Tab-separated, free text last: tmux escapes tabs in names, and output
 	// keeps them (and UTF-8) since output runs tmux with -u.
 	out, err := c.output(
 		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_attached}\t#{session_name}\t#{session_path}", ";",
-		"list-windows", "-a", "-F", "W\t"+windowFormat)
+		"list-windows", "-a", "-F", "W\t"+windowFormat, ";",
+		"display-message", "-p", "A\t"+agentFormat)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -182,6 +184,8 @@ func (c *Client) Snapshot() (Snapshot, error) {
 			if i, known := at[session]; ok && known {
 				snap.Sessions[i].Windows = append(snap.Sessions[i].Windows, w)
 			}
+		case "A":
+			snap.Agents = parseAgents(rest)
 		}
 	}
 	return snap, nil

@@ -32,6 +32,9 @@ const (
 	bold    = "1"
 	dim     = "2"
 	reverse = "7"
+	red     = "31"
+	green   = "32"
+	yellow  = "33"
 	cyan    = "36"
 )
 
@@ -57,11 +60,12 @@ func (m Model) View() tea.View {
 	}
 	for _, r := range rows {
 		var params []string
-		if m.focused && r.ID == m.cursor {
+		cursor := m.focused && r.ID == m.cursor
+		if cursor {
 			params = append(params, reverse)
 		}
 		params = append(params, m.highlight(r.Node)...)
-		lines = append(lines, styled(m.fit(m.row(r)), params...))
+		lines = append(lines, styled(m.fitTo(m.row(r), m.width-agentColumn), params...)+agentMark(r.Agent, cursor))
 	}
 	status := m.statusLines()
 	for room >= 0 && len(lines) < m.height-len(status) {
@@ -108,12 +112,17 @@ func (m Model) room() int {
 }
 
 // fit is line cut short or padded to the sidebar's width, once that's known.
-func (m Model) fit(line string) string {
+func (m Model) fit(line string) string { return m.fitTo(line, m.width) }
+
+// fitTo is line cut short or padded to width columns, once the sidebar's
+// width is known.
+func (m Model) fitTo(line string, width int) string {
 	if m.width <= 0 {
 		return line
 	}
-	line = ansi.Truncate(line, m.width, "…")
-	return line + strings.Repeat(" ", m.width-ansi.StringWidth(line))
+	width = max(0, width)
+	line = ansi.Truncate(line, width, "…")
+	return line + strings.Repeat(" ", width-ansi.StringWidth(line))
 }
 
 // highlight is how node n stands out: the active session in bold cyan, and
@@ -148,8 +157,8 @@ func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
 // row is how row r shows: after a two-column margin (where session numbers
 // go), indented by its depth, a fold mark if it has children, its name, and
-// then its markers (see markers). A name too long for the sidebar is cut
-// short before its markers are.
+// then its markers (see markers). A name too long for the sidebar (short of
+// the agent state's column) is cut short before its markers are.
 func (m Model) row(r tree.Row) string {
 	mark := " "
 	if len(r.Children) > 0 {
@@ -164,7 +173,7 @@ func (m Model) row(r tree.Row) string {
 	}
 	lead, marks := "  "+strings.Repeat("  ", r.Depth)+mark+" ", markers(r.Node)
 	if m.width > 0 && marks != "" {
-		name = ansi.Truncate(name, m.width-ansi.StringWidth(lead+marks), "…")
+		name = ansi.Truncate(name, m.width-agentColumn-ansi.StringWidth(lead+marks), "…")
 	}
 	return lead + name + marks
 }

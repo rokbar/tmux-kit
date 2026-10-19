@@ -2,7 +2,8 @@
 // of a host. It shows the tree of projects, worktrees, sessions and windows,
 // keeps the cursor and the folds by identity across rebuilds, and shows a
 // session or window on the right when asked to, opening a worktree's session
-// through wt first if it has none.
+// through wt first if it has none. Each row shows the most urgent agent state
+// beneath it, and done clears once its window is shown.
 package sidebar
 
 import (
@@ -32,8 +33,12 @@ type Host interface {
 
 // Normal is what the sidebar asks of the normal tmux server.
 type Normal interface {
-	// Snapshot is its sessions and their windows.
+	// Snapshot is its sessions and their windows, and its panes' agent
+	// states.
 	Snapshot() (tmux.Snapshot, error)
+	// ClearDone clears done in window (an id): the agent state of its panes
+	// that say done.
+	ClearDone(window string) error
 	// ActiveSession is the session the right side shows (an id), "" for
 	// none.
 	ActiveSession() (string, error)
@@ -86,8 +91,14 @@ type Model struct {
 	// asked for meanwhile, and fresh whether that one looks every folder up
 	// again.
 	building, again, fresh bool
+	// agentsNewer is whether the agent states changed while the build ran,
+	// so they're newer than its snapshot's.
+	agentsNewer bool
 
 	active string // the active session, by id
+	// right is the session tmux last said the right side shows, by id:
+	// active runs ahead of it while a session asked for is being shown.
+	right string
 	// hand has the folds made by hand, by node: unfolded or not. They stick
 	// for the launch; other nodes fold by default (see open).
 	hand map[tree.ID]bool
@@ -249,7 +260,8 @@ func distinct(errs []error) []error {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m, cmd := m.update(msg)
-	return m.scrolled(), cmd
+	m, clear := m.clearShown()
+	return m.scrolled(), tea.Batch(cmd, clear)
 }
 
 func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
@@ -276,6 +288,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.rebuild()
 	case tmux.WindowsChanged:
 		return m.withWindows(msg.Session, msg.Windows), nil
+	case tmux.AgentsChanged:
+		return m.withAgents(msg.Agents), nil
 	case built:
 		m.building = false
 		m.status.build = errText(msg.err)
@@ -285,8 +299,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 				tick = m.tick() // the first tree: its markers refresh from now on
 			}
 			m.unlisted = msg.unlisted
-			m = m.withSources(*msg.src).toActive().sayUnlisted()
+			m = m.withSources(m.newerAgents(*msg.src)).toActive().sayUnlisted()
 		}
+		m.agentsNewer = false
 		if m.again {
 			m.again = false
 			var build tea.Cmd
@@ -302,7 +317,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case Active:
 		m.status.active = errText(msg.Err)
 		if msg.Err == nil {
-			m.active = msg.Session
+			m.active, m.right = msg.Session, msg.Session
 			m = m.inSight().toActive()
 		}
 	case tmux.ActiveSessionChanged:
@@ -322,6 +337,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.afterAction()
 	case hostDone:
 		m.status.action = errText(msg.err)
+	case cleared:
+		if msg.err != nil {
+			m.status.action = msg.err.Error()
+		}
 	}
 	return m, nil
 }
