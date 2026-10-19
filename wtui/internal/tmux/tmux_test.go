@@ -1,6 +1,7 @@
 package tmux_test
 
 import (
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -103,6 +104,33 @@ func TestWidthIsTheWtuiWidthOption(t *testing.T) {
 		if got := c.Width(); got != 30 {
 			t.Errorf("with @wtui-width %s, Width() = %d, want 30", bad, got)
 		}
+	}
+}
+
+// The editor is the normal server's global TMUX_KIT_EDITOR, the one prefix e
+// runs: "" while it isn't set (or is marked for removal).
+func TestEditorIsTheGlobalTmuxKitEditor(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	t.Setenv("TMUX_KIT_EDITOR", "")
+	os.Unsetenv("TMUX_KIT_EDITOR") // the server would start with it
+	c := &tmux.Client{}
+	if got, err := c.Editor(); err == nil {
+		t.Errorf("with no server, Editor() = %q, want tmux's error", got)
+	}
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	if got, err := c.Editor(); err != nil || got != "" {
+		t.Errorf("with TMUX_KIT_EDITOR unset, Editor() = %q, %v; want \"\"", got, err)
+	}
+	tmuxRun(t, "set-environment", "-g", "TMUX_KIT_EDITOR", "code -n")
+	tmuxRun(t, "set-environment", "-g", "TMUX_KIT_EDITOR_X", "vim")
+	tmuxRun(t, "set-environment", "-t", "=a", "TMUX_KIT_EDITOR", "zed")
+	if got, err := c.Editor(); err != nil || got != "code -n" {
+		t.Errorf("with TMUX_KIT_EDITOR 'code -n', Editor() = %q, %v", got, err)
+	}
+	tmuxRun(t, "set-environment", "-gr", "TMUX_KIT_EDITOR")
+	if got, err := c.Editor(); err != nil || got != "" {
+		t.Errorf("with TMUX_KIT_EDITOR marked for removal, Editor() = %q, %v; want \"\"", got, err)
 	}
 }
 

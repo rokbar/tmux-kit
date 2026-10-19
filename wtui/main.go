@@ -22,6 +22,7 @@ import (
 
 	"github.com/rokbar/tmux-kit/wtui/internal/browser"
 	"github.com/rokbar/tmux-kit/wtui/internal/detail"
+	"github.com/rokbar/tmux-kit/wtui/internal/editor"
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
 	gitrepo "github.com/rokbar/tmux-kit/wtui/internal/repo" // the popup has its own repo
 	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
@@ -85,7 +86,10 @@ func runSidebar() error {
 		return errors.Join(err, h.Close())
 	}
 	watch := normal.Watch()
-	c := sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe)}
+	c := sidebar.Clients{
+		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
+		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{},
+	}
 	var m tea.Model = sidebar.New(c, key)
 	// The sidebar starts with focus, as the host gives it, unless it starts
 	// hidden (a narrow terminal): tmux moved focus right before the sidebar

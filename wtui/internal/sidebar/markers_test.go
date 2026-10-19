@@ -185,6 +185,31 @@ func TestMarkersRefreshAfterAnAction(t *testing.T) {
 	}
 }
 
+// e and o are actions too: once the editor or the browser has opened, every
+// git project's worktrees are listed again. Moving focus (esc) is no action
+// on worktrees, and lists nothing.
+func TestMarkersRefreshAfterEAndO(t *testing.T) {
+	f := worktrees()
+	f.wt.lists["/p/api"][1].DevURL = "http://localhost:3001" // fix-login, login's
+	m, _ := withOpeners(t, f)                                // on login
+	for _, k := range []string{"e", "o"} {
+		f.wt.listed = nil
+		var cmd, after tea.Cmd
+		m, cmd = update(t, m, press(k))
+		if m, after = update(t, m, run(t, cmd)); after != nil {
+			m = feed(t, m, after)
+		}
+		if want := []string{"/p/api", "/p/Zed"}; !slices.Equal(f.wt.listed, want) {
+			t.Errorf("after %s, the sidebar had wt list %q, want %q", k, f.wt.listed, want)
+		}
+	}
+	f.wt.listed = nil
+	m, cmd := update(t, m, esc)
+	if _, after := update(t, m, run(t, cmd)); after != nil || len(f.wt.listed) > 0 {
+		t.Errorf("after esc, the sidebar gave %v and had wt list %q, want nothing", after, f.wt.listed)
+	}
+}
+
 // When an action finishes while a project's refresh runs, that refresh may
 // predate what the action did, so another follows it, once it's done. Here
 // the action fails (wt can't open docs, but made it dirty), which counts

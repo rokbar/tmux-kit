@@ -153,8 +153,8 @@ func TestWorktreesWithoutASessionAreDimmed(t *testing.T) {
 }
 
 // enter on a worktree's row with sessions under it folds or unfolds it, as
-// on a project, and on a missing worktree does nothing: it has nothing to
-// show.
+// on a project, and on a missing worktree shows a hint and does nothing
+// else: it has nothing to show.
 func TestEnterOnAWorktreeWithSessionsFoldsIt(t *testing.T) {
 	f := worktrees()
 	m := keys(t, focused(t, f), press("k"), press("k"), press("k")) // main
@@ -176,7 +176,7 @@ func TestEnterOnAWorktreeWithSessionsFoldsIt(t *testing.T) {
 		t.Fatalf("the cursor is on %q, want api--gone", got)
 	}
 	before := plain(m)
-	if m, cmd = update(t, m, enter); cmd != nil || plain(m) != before {
+	if m, cmd = update(t, m, enter); cmd != nil || plain(m) != before+"\napi--gone is missing" {
 		t.Errorf("enter on a missing worktree did %v, and the view went from:\n%s\nto:\n%s", cmd, before, plain(m))
 	}
 	if len(f.normal.shown) > 0 || len(f.wt.opened) > 0 || len(f.host.asked) > 0 {

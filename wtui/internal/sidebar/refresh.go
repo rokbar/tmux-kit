@@ -40,9 +40,18 @@ func after(d time.Duration, msg tea.Msg) tea.Cmd {
 // commit made in the git UI clears ±). A listing running for a project may
 // predate the action, so another follows it.
 //
-// Every action's result goes through here: an action's message handler
-// returns m.afterAction(), batched with its own commands, if any.
+// Every action's result goes through here: an action run with act gets
+// there by itself; one with a message of its own has its handler return
+// m.afterAction(), batched with its own commands, if any.
 func (m Model) afterAction() (Model, tea.Cmd) { return m.refreshAll(true) }
+
+// act runs an action in the background (e.g. opening the editor). Once it's
+// done, the status line says why it failed, if it did, and afterAction
+// follows.
+func act(f func() error) tea.Cmd { return func() tea.Msg { return acted{f()} } }
+
+// acted is an action run with act, done: why it failed, or nil.
+type acted struct{ err error }
 
 // refreshAll refreshes every git project the tree shows (see refresh).
 func (m Model) refreshAll(follow bool) (Model, tea.Cmd) {

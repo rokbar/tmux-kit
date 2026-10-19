@@ -132,6 +132,24 @@ func (c *Client) Width() int {
 	return DefaultWidth
 }
 
+// Editor is the editor's command line, as the normal server's global
+// TMUX_KIT_EDITOR has it (the one tmux-kit's prefix e runs), or "" while
+// that isn't set.
+func (c *Client) Editor() (string, error) {
+	// The whole environment, since asking for one variable that isn't set
+	// fails as any other failure would.
+	out, err := c.output("show-environment", "-g")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if editor, ok := strings.CutPrefix(line, "TMUX_KIT_EDITOR="); ok {
+			return editor, nil
+		}
+	}
+	return "", nil
+}
+
 // Snapshot is the normal server's sessions and windows now, from one tmux
 // command.
 func (c *Client) Snapshot() (Snapshot, error) {

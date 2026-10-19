@@ -65,6 +65,9 @@ type Clients struct {
 	Normal Normal
 	Repos  Repos
 	Wt     Wt
+	// Editor opens folders in the user's editor, and Browser dev URLs in the
+	// browser.
+	Editor, Browser Opener
 }
 
 // Model is the sidebar.
@@ -161,7 +164,8 @@ func (m Model) readActive() tea.Msg {
 	return Active{id, err}
 }
 
-// ask runs a host request in the background.
+// ask runs a request of the host in the background. An action (e.g. opening
+// the editor) runs with act instead.
 func ask(f func() error) tea.Cmd { return func() tea.Msg { return hostDone{f()} } }
 
 // rebuild starts a build, unless one is running, in which case another
@@ -259,11 +263,12 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.focused = false
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			m.seek = false
+			m.seek, m.status.hint = false, ""
 			return m.clickOn(msg.Y), nil
 		}
 	case tea.KeyPressMsg:
 		m.seek = false // the cursor is the user's now
+		m.status.hint = ""
 		if a, ok := keyed[msg.String()]; ok {
 			return a.do(m)
 		}
@@ -311,6 +316,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.active = msg.session
 			m = m.inSight()
 		}
+		return m.afterAction()
+	case acted:
+		m.status.action = errText(msg.err)
 		return m.afterAction()
 	case hostDone:
 		m.status.action = errText(msg.err)
