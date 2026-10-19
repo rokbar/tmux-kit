@@ -1,3 +1,7 @@
+---
+status: partly superseded by ADR 0002 (the popup; acting only through wt)
+---
+
 # wtui is an optional Go program in tmux-kit, and acts only through wt
 
 tmux-kit's runtime is bash, tmux, git and fzf, and that stays true. wtui, a
