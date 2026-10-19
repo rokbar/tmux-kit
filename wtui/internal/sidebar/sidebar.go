@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,6 +25,9 @@ type Host interface {
 	FocusRight() error
 	// PrefixRight moves focus to the right side and passes tmux's prefix on.
 	PrefixRight() error
+	// Hide hides the sidebar, giving the right side the whole window and
+	// focus, until the sidebar gets focus again.
+	Hide() error
 }
 
 // Normal is what the sidebar asks of the normal tmux server.
@@ -62,9 +66,6 @@ type Clients struct {
 	Repos  Repos
 	Wt     Wt
 }
-
-// poll is how often the sidebar asks which session is active.
-const poll = time.Second
 
 // Model is the sidebar.
 type Model struct {
@@ -148,7 +149,6 @@ type shown struct {
 	err     error
 }
 
-type pollDue struct{}
 type hostDone struct{ err error }
 
 func (m Model) Init() tea.Cmd {
@@ -267,8 +267,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		if a, ok := keyed[msg.String()]; ok {
 			return a.do(m)
 		}
-	case Rebuild:
+	case Rebuild, tmux.SessionsChanged:
 		return m.rebuild()
+	case tmux.WindowsChanged:
+		return m.withWindows(msg.Session, msg.Windows), nil
 	case built:
 		m.building = false
 		m.status.build = errText(msg.err)
@@ -298,18 +300,18 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.active = msg.Session
 			m = m.inSight().toActive()
 		}
-		return m, tea.Tick(poll, func(time.Time) tea.Msg { return pollDue{} })
-	case pollDue:
-		return m, m.readActive
+	case tmux.ActiveSessionChanged:
+		return m.update(Active{Session: msg.Session})
 	case shown:
 		m.status.action = errText(msg.err)
-		if msg.session == "" {
-			return m.afterAction()
+		if msg.session != "" {
+			// at once, before tmux says so (ActiveSessionChanged); a window
+			// shown becomes its session's current one when tmux says that
+			// (WindowsChanged)
+			m.active = msg.session
+			m = m.inSight()
 		}
-		m.active = msg.session
-		// A window shown is now its session's current one. The build lists
-		// every git project, so it's afterAction's refresh too.
-		return m.inSight().rebuild()
+		return m.afterAction()
 	case hostDone:
 		m.status.action = errText(msg.err)
 	}
@@ -324,6 +326,25 @@ func (m Model) withSources(src tree.Sources) Model {
 	m.tree = tree.Build(src)
 	m.cursor = m.tree.Nearest(old, m.cursor)
 	return m.inSight()
+}
+
+// withWindows is the sidebar with session's windows now windows, and the
+// rest of the tree as it was built. A session it doesn't have yet is in the
+// build its creation asked for. A build running now may have taken its
+// snapshot before the windows changed, so another follows it.
+func (m Model) withWindows(session string, windows []tmux.Window) Model {
+	if m.building {
+		m.again = true
+	}
+	sessions := slices.Clone(m.src.Snapshot.Sessions)
+	i := slices.IndexFunc(sessions, func(s tmux.Session) bool { return s.ID == session })
+	if i < 0 {
+		return m
+	}
+	sessions[i].Windows = windows
+	src := m.src
+	src.Snapshot.Sessions = sessions
+	return m.withSources(src)
 }
 
 // inSight is the sidebar with the cursor on a row that shows: if its row is

@@ -16,13 +16,17 @@
 #   build_wtui                   builds wtui (test/lib/wtui-build.sh)
 #   launch <t> [<dir> [<word>...]]
 #                                opens terminal <t> running wtui in <dir>
-#                                (default $tmp), and waits until its host is up
+#                                (default $tmp), and waits until its host is up;
+#                                120x35, or $term_cols wide if set
 #   open_terminal <t> [<dir> [<word>...]]
 #                                the same without waiting
 #   type_in <t> <key>...         types into <t>, as tmux send-keys names keys
 #   click <t> <col> <row>        a left click, 1-based, as the terminal sends it
 #   drag <t> <col> <row> <col> <row>
 #                                a left-button drag from one cell to another
+#   resize_terminal <t> <cols>   resizes <t> to <cols> columns (35 rows), as
+#                                resizing a terminal window would, and waits
+#                                until its host is that wide too
 #   screen <t>                   what <t> shows
 #   sidebar_text <t>             what <t>'s sidebar shows, without trailing
 #                                spaces or blank lines
@@ -39,6 +43,8 @@
 #   nested_client <t>            the right side's client on the normal server
 #                                (its name: a tty)
 #   sidebar_width <t>            the sidebar's width in columns
+#   hidden <t>                   whether <t>'s sidebar is hidden: the right
+#                                side zoomed to the whole window
 #   wait_until <what> <cmd> [<arg>...]
 #                                runs <cmd> every 0.1 s until it succeeds; after
 #                                20 s fails the test, showing every terminal
@@ -89,16 +95,17 @@ new_session() {
   tmux new-session -d -s "$1" -c "$dir"
 }
 
-# The terminal is 120x35. Its pane stays after wtui exits, so its screen and
-# exit status can be read. wtui runs as from a plain terminal: the terminal's
-# own tmux server sets TMUX in its pane, so it's unset. The command is given
-# to tmux as words, so no shell runs it.
+# The terminal is 120x35, or $term_cols columns wide if that's set. Its pane
+# stays after wtui exits, so its screen and exit status can be read. wtui runs
+# as from a plain terminal: the terminal's own tmux server sets TMUX in its
+# pane, so it's unset. The command is given to tmux as words, so no shell
+# runs it.
 open_terminal() {
   local t="$1" dir="${2:-$tmp}"
   shift
   if [ $# -gt 0 ]; then shift; fi
   rm -f "$tmp/$t.host"
-  term new-session -d -s "$t" -x 120 -y 35 -c "$dir" \
+  term new-session -d -s "$t" -x "${term_cols:-120}" -y 35 -c "$dir" \
     env -u TMUX -u TMUX_PANE "$@" "$HOME/.local/bin/wtui" \; \
     set-option -w -t "=$t:" remain-on-exit on \; \
     set-option -s set-clipboard on
@@ -156,6 +163,12 @@ drag() {
   type_in "$1" -l $'\e[<0;'"$4;$5m"
 }
 
+resize_terminal() {
+  term resize-window -t "=$1:" -x "$2" -y 35
+  wait_until "terminal $1's host to be $2 columns wide" host_width_is "$1" "$2"
+}
+host_width_is() { [ "$(host "$1" display-message -p '#{window_width}')" = "$2" ]; }
+
 screen() { term capture-pane -p -t "=$1:"; }
 
 # awk drops trailing spaces, and blank lines unless something follows them.
@@ -195,6 +208,7 @@ focus() {
 focus_on() { [ "$(focus "$1")" = "$2" ]; }
 
 sidebar_width() { host "$1" display-message -p -t "$(sidebar_pane "$1")" '#{pane_width}'; }
+hidden() { [ "$(host "$1" display-message -p -t "$(right_pane "$1")" '#{window_zoomed_flag}')" = 1 ]; }
 
 # The right side's client is the normal server's client on the right pane's
 # tty; tmux names a client by its tty.

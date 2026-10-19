@@ -198,7 +198,9 @@ func TestEnterOnAWorktreeWithoutASessionOpensItThenShowsIt(t *testing.T) {
 	if len(f.wt.opened) > 0 {
 		t.Fatal("enter opened the worktree before returning, want it in the background")
 	}
-	m, rebuild := update(t, m, run(t, cmd))
+	m, _ = update(t, m, run(t, cmd))
+	// the session wt started is an event, which rebuilds the tree
+	m, rebuild := update(t, m, tmux.SessionsChanged{})
 	m = feed(t, m, rebuild)
 	if want := []string{"/p/api /p/api--docs"}; !slices.Equal(f.wt.opened, want) {
 		t.Errorf("enter opened %q, want %q", f.wt.opened, want)

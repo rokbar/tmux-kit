@@ -19,6 +19,7 @@ type fakeHost struct{ asked []string }
 
 func (h *fakeHost) FocusRight() error  { h.asked = append(h.asked, "focus right"); return nil }
 func (h *fakeHost) PrefixRight() error { h.asked = append(h.asked, "prefix right"); return nil }
+func (h *fakeHost) Hide() error        { h.asked = append(h.asked, "hide"); return nil }
 
 // fakeNormal is a normal server with the sessions in snap, whose nested
 // client shows active (an id). It records what the sidebar asked of it.
@@ -503,13 +504,21 @@ func TestEnterShowsASessionOrAWindow(t *testing.T) {
 	}
 }
 
-// Once a window is shown, the tree rebuilds, marking it as its session's
-// active window.
+// Once a window is shown, tmux says its session's windows changed, and the
+// tree marks it as the active window; showing it rebuilds nothing.
 func TestAShownWindowBecomesItsSessionsActiveOne(t *testing.T) {
-	m := keys(t, focused(t, fixture()), press("j")) // fix-login's shell
+	f := fixture()
+	m := keys(t, focused(t, f), press("j")) // fix-login's shell
 	m, cmd := update(t, m, enter)
-	m, rebuild := update(t, m, run(t, cmd))
-	m = feed(t, m, rebuild)
+	before := f.normal.snapshots
+	m, after := update(t, m, run(t, cmd))
+	if after != nil {
+		m = feed(t, m, after) // the markers' refresh after an action
+	}
+	if f.normal.snapshots != before {
+		t.Error("showing a window rebuilds the tree")
+	}
+	m, _ = update(t, m, tmux.WindowsChanged{Session: "$2", Windows: f.normal.snap.Sessions[1].Windows})
 	m, _ = update(t, m, tea.BlurMsg{}) // focus went right
 	if got := styles(m); got["        0 shell"] != "1" || got["        1 dev"] != "" {
 		t.Errorf("after showing fix-login's shell, its windows are styled %q and %q, want shell in bold",
@@ -835,24 +844,6 @@ func TestTheTreeScrollsInAShortPane(t *testing.T) {
 	}
 }
 
-// The right side can change session by itself (prefix s there), so the
-// sidebar asks again which session is active, and the highlight follows.
-func TestFollowsTheRightSide(t *testing.T) {
-	f := fixture()
-	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt}, `C-\`)
-	m = feed(t, m, m.Init())
-	m, again := update(t, m, Active{Session: "$2"})
-	if again == nil {
-		t.Fatal("the sidebar doesn't ask again which session is active")
-	}
-	f.normal.active = "$3"
-	m, ask := update(t, m, pollDue{}) // the tick, without waiting for it
-	m = feed(t, m, ask)
-	if got := styles(m)["    ▾ notes"]; got != "1;36" {
-		t.Errorf("after the right side moved to notes, notes is styled %q, want it highlighted:\n%s", got, plain(m))
-	}
-}
-
 // Moving around the tree, folding and unfolding never changes what's on the
 // right.
 func TestMovingNeverChangesTheRightSide(t *testing.T) {
@@ -884,6 +875,18 @@ func TestEscGoesRight(t *testing.T) {
 	run(t, cmd)
 	if want := []string{"focus right"}; !slices.Equal(f.host.asked, want) {
 		t.Errorf("esc asked the host %q, want %q", f.host.asked, want)
+	}
+}
+
+// z hides the sidebar, which gives the right side the whole window, and
+// focus.
+func TestZHidesTheSidebar(t *testing.T) {
+	f := fixture()
+	m := started(t, f)
+	_, cmd := update(t, m, press("z"))
+	run(t, cmd)
+	if want := []string{"hide"}; !slices.Equal(f.host.asked, want) {
+		t.Errorf("z asked the host %q, want %q", f.host.asked, want)
 	}
 }
 

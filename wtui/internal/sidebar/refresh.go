@@ -41,9 +41,7 @@ func after(d time.Duration, msg tea.Msg) tea.Cmd {
 // predate the action, so another follows it.
 //
 // Every action's result goes through here: an action's message handler
-// returns m.afterAction() (batched with its own commands, if any). One that
-// rebuilds the tree once it's done needs no more: a build lists every git
-// project too.
+// returns m.afterAction(), batched with its own commands, if any.
 func (m Model) afterAction() (Model, tea.Cmd) { return m.refreshAll(true) }
 
 // refreshAll refreshes every git project the tree shows (see refresh).
