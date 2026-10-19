@@ -1,7 +1,19 @@
-// Command wtui is an optional, worktree-first dashboard over tmux-kit's wt.
+// Command wtui is an optional app over tmux-kit's wt and tmux: run in a plain
+// terminal, it opens a host with the sidebar on the left and a session on the
+// right.
+//
+//	wtui              launch: a host on this terminal
+//	wtui --version    print the version
+//
+// The host runs the rest itself:
+//
+//	wtui sidebar           the sidebar, in the host's left pane
+//	wtui right [<session>] the right side's wrapper, in its right pane
+//	wtui popup             the old popup, kept until the host replaces it
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +22,9 @@ import (
 
 	"github.com/rokbar/tmux-kit/wtui/internal/browser"
 	"github.com/rokbar/tmux-kit/wtui/internal/detail"
+	"github.com/rokbar/tmux-kit/wtui/internal/host"
+	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
+	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
@@ -20,6 +35,51 @@ func main() {
 		fmt.Println("wtui", currentVersion())
 		return
 	}
+	var err error
+	switch flag.Arg(0) {
+	case "":
+		err = launch()
+	case "sidebar":
+		err = runSidebar()
+	case "right":
+		err = host.Right(&tmux.Client{}, flag.Arg(1))
+	case "popup":
+		err = runPopup()
+	default:
+		fmt.Fprintln(os.Stderr, "usage: wtui [--version]")
+		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wtui:", err)
+		os.Exit(1)
+	}
+}
+
+func launch() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return host.Launch(exe, &tmux.Client{})
+}
+
+// runSidebar runs the sidebar in its host until q, then closes the host.
+func runSidebar() error {
+	normal := &tmux.Client{}
+	key := normal.Key()
+	h, err := host.Sidebar(key)
+	if err != nil {
+		return err
+	}
+	if normal.Nested, err = h.RightTTY(); err != nil {
+		return errors.Join(err, h.Close())
+	}
+	_, err = tea.NewProgram(sidebar.New(h, normal, key)).Run()
+	return errors.Join(err, h.Close())
+}
+
+// runPopup is the popup the host replaces, unused by the launcher.
+func runPopup() error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	var repoDir string
 	cwd, findErr := os.Getwd()
@@ -28,14 +88,11 @@ func main() {
 	}
 	final, err := tea.NewProgram(newModel(wt.New(exe), detail.Reader{}, browser.Opener{}, tmuxClient{}, repoDir, findErr)).Run()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "wtui:", err)
-		os.Exit(1)
+		return err
 	}
 	// Run has restored the terminal, so tmux can have it
 	if m, ok := final.(model); ok && m.handoff != "" {
-		if err := handOff(m.handoff); err != nil {
-			fmt.Fprintln(os.Stderr, "wtui:", err)
-			os.Exit(1)
-		}
+		return handOff(m.handoff)
 	}
+	return nil
 }

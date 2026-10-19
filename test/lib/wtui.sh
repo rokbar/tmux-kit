@@ -1,52 +1,25 @@
 # shellcheck shell=bash
-# Sourced by the whole-stack test/*.sh (after set -euo pipefail) in place of
-# test/lib/sandbox.sh, which it sources: builds wtui and runs it in a pane of
-# the sandbox's private tmux server, with a tmux client showing that pane, as
-# in real use. Defines build_wtui, start_wtui, press, screen, wait_for,
-# status_is, wait_until, wtui_exited, wtui_status, client_session, client_on
-# and session_in. Keys that act on rows do nothing until wtui's list has
-# arrived, so wait_for a row before pressing them.
+# Sourced by the popup's whole-stack test/wtui-*.sh (after set -euo pipefail)
+# in place of test/lib/sandbox.sh, which it sources: builds wtui and runs the
+# popup (`wtui popup`, kept until the host replaces it) in a pane of the
+# sandbox's private tmux server, with a tmux client showing that pane, as in
+# real use. Defines build_wtui (from test/lib/wtui-build.sh), start_wtui,
+# press, screen, wait_for, status_is, wait_until, wtui_exited, wtui_status,
+# client_session, client_on and session_in. Keys that act on rows do nothing
+# until wtui's list has arrived, so wait_for a row before pressing them.
 
-# build_wtui keeps Go's caches inside the sandbox, so it writes nothing
-# outside it. It takes wtui's modules from the user's module download cache
-# when that has them (read-only, so offline works too), else from the user's
-# GOPROXY. Both are found before the sandbox replaces HOME, and with it the
-# user's go env file.
-go_modcache="" go_proxy=""
-if command -v go >/dev/null && go_env="$(go env GOMODCACHE GOPROXY)"; then
-  { IFS= read -r go_modcache; IFS= read -r go_proxy; } <<<"$go_env"
-fi
-# shellcheck source=test/lib/sandbox.sh
-. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"
-# wtui finds the wt next to it (see build_wtui), as when installed
-unset WT_BIN
+# shellcheck source=test/lib/wtui-build.sh
+. "$(dirname "${BASH_SOURCE[0]}")/wtui-build.sh"
 
-# build_wtui: builds wtui into the sandbox's ~/.local/bin, with wt next to it,
-# as install.sh puts them. Without Go, it skips the whole test: it says so and
-# exits 0.
-build_wtui() {
-  if ! command -v go >/dev/null; then
-    echo "skip: $(basename "$0"): go isn't on PATH, so wtui can't be built"
-    exit 0
-  fi
-  mkdir -p "$HOME/.local/bin"
-  # -modcacherw: the sandbox's module cache must be deletable
-  (cd "$kit/wtui" && GOENV=off GOFLAGS=-modcacherw \
-    GOPATH="$tmp/go" GOCACHE="$tmp/go/cache" GOMODCACHE="$tmp/go/mod" \
-    GOPROXY="${go_modcache:+file://$go_modcache/cache/download,}${go_proxy:-https://proxy.golang.org,direct}" \
-    go build -buildvcs=false -o "$HOME/.local/bin/wtui" . >"$tmp/log" 2>&1) ||
-    fail "go build of wtui failed: $(cat "$tmp/log")"
-  ln -s "$kit/bin/wt" "$HOME/.local/bin/wt"
-}
-
-# start_wtui <dir> [<word>...]: runs wtui in <dir>, in a new session "wtui",
-# and attaches a tmux client to that session from the pane of another session,
-# "term", which stands in for a terminal. <word>s go before wtui on its command
-# line, e.g. `env -u TMUX` to run it as if outside tmux. Ends the previous
-# wtui and term sessions first. Sets wtui_pane and term_pane (pane ids). The
-# pane stays after wtui exits, so its screen and exit status can be read.
-# Both sessions start in $tmp, so neither counts as a worktree's session.
-# Commands are given to tmux as words, so the user's shell doesn't run them.
+# start_wtui <dir> [<word>...]: runs the popup, `wtui popup`, in <dir>, in a
+# new session "wtui", and attaches a tmux client to that session from the pane
+# of another session, "term", which stands in for a terminal. <word>s go
+# before wtui on its command line, e.g. `env -u TMUX` to run it as if outside
+# tmux. Ends the previous wtui and term sessions first. Sets wtui_pane and
+# term_pane (pane ids). The pane stays after wtui exits, so its screen and
+# exit status can be read. Both sessions start in $tmp, so neither counts as a
+# worktree's session. Commands are given to tmux as words, so the user's shell
+# doesn't run them.
 # wtui's window keeps its 100x30 (window-size manual) when the client attaches:
 # a resize just as wtui starts can come before Bubble Tea listens for SIGWINCH,
 # and wtui would go on drawing for the old size, garbling the screen.
@@ -57,7 +30,7 @@ start_wtui() {
   tmux kill-session -t =wtui 2>/dev/null || true
   # shellcheck disable=SC2016 # sh expands $1 and $@ in the pane, not here
   wtui_pane="$(tmux new-session -d -P -F '#{pane_id}' -s wtui -x 100 -y 30 -c "$tmp" \
-    /bin/sh -c 'cd "$1" && shift && exec "$@"' sh "$dir" "$@" "$HOME/.local/bin/wtui" \; \
+    /bin/sh -c 'cd "$1" && shift && exec "$@"' sh "$dir" "$@" "$HOME/.local/bin/wtui" popup \; \
     set-option -w -t =wtui: remain-on-exit on \; \
     set-option -w -t =wtui: window-size manual)"
   term_pane="$(tmux new-session -d -P -F '#{pane_id}' -s term -x 100 -y 30 -c "$tmp" \

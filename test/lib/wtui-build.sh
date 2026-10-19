@@ -1,0 +1,36 @@
+# shellcheck shell=bash
+# Sourced by the tests that build wtui (after set -euo pipefail), through
+# test/lib/wtui.sh or test/lib/host.sh, in place of test/lib/sandbox.sh, which
+# it sources. Defines build_wtui.
+
+# build_wtui keeps Go's caches inside the sandbox, so it writes nothing
+# outside it. It takes wtui's modules from the user's module download cache
+# when that has them (read-only, so offline works too), else from the user's
+# GOPROXY. Both are found before the sandbox replaces HOME, and with it the
+# user's go env file.
+go_modcache="" go_proxy=""
+if command -v go >/dev/null && go_env="$(go env GOMODCACHE GOPROXY)"; then
+  { IFS= read -r go_modcache; IFS= read -r go_proxy; } <<<"$go_env"
+fi
+# shellcheck source=test/lib/sandbox.sh
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"
+# wtui finds the wt next to it (see build_wtui), as when installed
+unset WT_BIN
+
+# build_wtui: builds wtui into the sandbox's ~/.local/bin, with wt next to it,
+# as install.sh puts them. Without Go, it skips the whole test: it says so and
+# exits 0.
+build_wtui() {
+  if ! command -v go >/dev/null; then
+    echo "skip: $(basename "$0"): go isn't on PATH, so wtui can't be built"
+    exit 0
+  fi
+  mkdir -p "$HOME/.local/bin"
+  # -modcacherw: the sandbox's module cache must be deletable
+  (cd "$kit/wtui" && GOENV=off GOFLAGS=-modcacherw \
+    GOPATH="$tmp/go" GOCACHE="$tmp/go/cache" GOMODCACHE="$tmp/go/mod" \
+    GOPROXY="${go_modcache:+file://$go_modcache/cache/download,}${go_proxy:-https://proxy.golang.org,direct}" \
+    go build -buildvcs=false -o "$HOME/.local/bin/wtui" . >"$tmp/log" 2>&1) ||
+    fail "go build of wtui failed: $(cat "$tmp/log")"
+  ln -s "$kit/bin/wt" "$HOME/.local/bin/wt"
+}
