@@ -97,6 +97,7 @@ type fakes struct {
 	host   *fakeHost
 	normal *fakeNormal
 	repos  *fakeRepos
+	wt     *fakeWt
 }
 
 // The fixture most tests use: a git project api (main clone /p/api, with a
@@ -116,7 +117,7 @@ func fixture() fakes {
 	r := &fakeRepos{clones: map[string]string{
 		"/p/api": "/p/api", "/p/api--fix-login": "/p/api", "/p/Zed/src": "/p/Zed",
 	}}
-	return fakes{&fakeHost{}, n, r}
+	return fakes{&fakeHost{}, n, r, &fakeWt{normal: n}}
 }
 
 func update(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
@@ -156,7 +157,7 @@ func feed(t *testing.T, m Model, cmd tea.Cmd) Model {
 // session.
 func started(t *testing.T, f fakes) Model {
 	t.Helper()
-	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos}, `C-\`)
+	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt}, `C-\`)
 	return feed(t, m, m.Init())
 }
 
@@ -705,7 +706,7 @@ func TestTheCursorStaysInSightWhenItsRowFoldsAway(t *testing.T) {
 func TestTheCursorLandsOnTheActiveSessionAtLaunch(t *testing.T) {
 	for _, activeFirst := range []bool{true, false} {
 		f := fixture()
-		m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos}, `C-\`)
+		m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt}, `C-\`)
 		m, _ = update(t, m, tea.FocusMsg{})
 		batch, ok := run(t, m.Init()).(tea.BatchMsg)
 		if !ok || len(batch) != 2 {
