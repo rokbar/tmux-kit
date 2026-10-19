@@ -11,13 +11,14 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
-// status is what the status line shows: the last failure of an action, of a
-// build and of reading the active session, whichever there are.
-type status struct{ action, build, active string }
+// status is what the status line shows: the hint for the last key, if it
+// didn't apply, and the last failure of an action, of a build and of reading
+// the active session, whichever there are.
+type status struct{ hint, action, build, active string }
 
 func (s status) lines() []string {
 	var lines []string
-	for _, l := range []string{s.action, s.build, s.active} {
+	for _, l := range []string{s.hint, s.action, s.build, s.active} {
 		if l != "" && (len(lines) == 0 || lines[len(lines)-1] != l) {
 			lines = append(lines, l)
 		}

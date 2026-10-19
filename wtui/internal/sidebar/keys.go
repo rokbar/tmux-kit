@@ -21,7 +21,9 @@ type action struct {
 }
 
 // actions are every sidebar key, in the order a list of keys shows them.
-// A key not here does nothing.
+// A key not here does nothing. A key that acts on something of the cursor's
+// row (its folder, its dev URL) finds it with on, which shows a hint for a
+// row that has none.
 var actions = []action{
 	{[]string{"j", "down"}, "down", Model.down},
 	{[]string{"k", "up"}, "up", Model.up},
@@ -29,6 +31,8 @@ var actions = []action{
 	{[]string{"h", "left"}, "fold, or go to the parent", Model.fold},
 	{[]string{"space"}, "fold or unfold", Model.toggle},
 	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
+	{[]string{"e"}, "the editor on the worktree or folder", on(folderOf, Model.edit)},
+	{[]string{"o"}, "the dev URL in the browser", on(devURLOf, Model.browse)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
 	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},
@@ -45,6 +49,34 @@ var keyed = func() map[string]action {
 	}
 	return byKey
 }()
+
+// A hint says why a key doesn't apply to the cursor's row, e.g. "notes has
+// no dev URL". The status line shows it until the next key, and the key does
+// nothing else.
+type hint string
+
+// on is an action on what find finds for the cursor's row: its folder, its
+// dev URL, ... For a row find has a hint for instead, the key shows that.
+func on[T any](find func(*tree.Node) (T, hint), do func(Model, T) (Model, tea.Cmd)) func(Model) (Model, tea.Cmd) {
+	return func(m Model) (Model, tea.Cmd) {
+		n := m.tree.Node(m.cursor)
+		if n == nil {
+			return m, nil
+		}
+		target, h := find(n)
+		if h != "" {
+			return m.hinted(h)
+		}
+		return do(m, target)
+	}
+}
+
+// hinted is the sidebar showing hint h, for a key that doesn't apply to the
+// cursor's row.
+func (m Model) hinted(h hint) (Model, tea.Cmd) {
+	m.status.hint = string(h)
+	return m, nil
+}
 
 func (m Model) down() (Model, tea.Cmd) { return m.move(1), nil }
 func (m Model) up() (Model, tea.Cmd)   { return m.move(-1), nil }
@@ -110,7 +142,7 @@ func (m Model) toggle() (Model, tea.Cmd) {
 // enter shows a session, or a window's session at that window, on the right
 // and moves focus there; it folds or unfolds a project, or a worktree with
 // sessions under it. A worktree without a session, it opens first. A
-// missing worktree has nothing to show.
+// missing worktree has nothing to show, so it gets a hint.
 func (m Model) enter() (Model, tea.Cmd) {
 	n := m.tree.Node(m.cursor)
 	if n == nil {
@@ -120,7 +152,7 @@ func (m Model) enter() (Model, tea.Cmd) {
 	case n.ID.Kind == tree.Project || n.ID.Kind == tree.Worktree && len(n.Children) > 0:
 		return m.toggle()
 	case missing(n):
-		return m, nil
+		return m.hinted(isMissing(n.Worktree))
 	case n.ID.Kind == tree.Worktree:
 		return m, m.opening(n)
 	}
