@@ -42,7 +42,7 @@ func withOpeners(t *testing.T, f fakes) (Model, openers) {
 func TestEOpensTheEditorOnTheRowsWorktree(t *testing.T) {
 	f := worktrees()
 	m, o := withOpeners(t, f)
-	if got := cursor(t, m); got != "    ▾ login" {
+	if got := cursor(t, m); got != "3   ▾ login" {
 		t.Fatalf("the cursor is on %q, want login", got)
 	}
 	m, cmd := update(t, m, press("e"))
@@ -103,19 +103,19 @@ func TestEOpensTheEditorOnTheRowsFolder(t *testing.T) {
 	want := map[string]string{
 		"  ▾ api":             "/p/api",
 		"    ▾ main":          "/p/api",
-		"      ▸ api":         "/p/api",
-		"      ▸ Bugfix":      "/p/api",
-		"    ▾ login":         "/p/api--fix-login",
+		"1     ▸ api":         "/p/api",
+		"2     ▸ Bugfix":      "/p/api",
+		"3   ▾ login":         "/p/api--fix-login",
 		"        0 shell":     "/p/api--fix-login",
 		"        1 dev":       "/p/api--fix-login",
 		"      docs":          "/p/api--docs",
 		"      api--rebase ±": "/p/api--rebase",
-		"    ▸ spike":         "/p/api--spike/web",
+		"4   ▸ spike":         "/p/api--spike/web",
 		"  ▾ notes":           "/home/u/notes",
-		"    ▸ notes":         "/home/u/notes",
+		"5   ▸ notes":         "/home/u/notes",
 		"  ▾ Zed":             "/p/Zed",
-		"    ▸ zed":           "/p/Zed",
-		"    ▸ agent":         "/p/Zed/.claude/worktrees/agent",
+		"6   ▸ zed":           "/p/Zed",
+		"7   ▸ agent":         "/p/Zed/.claude/worktrees/agent",
 	}
 	got := onEveryRow(t, m, press("e"), o.editor)
 	delete(got, "      api--gone ✗") // missing: see the hints' test
@@ -232,20 +232,20 @@ func TestOOpensTheRowsDevURL(t *testing.T) {
 	want := map[string]string{
 		"  ▾ api":             " api has no dev URL",
 		"    ▾ main":          " api has no dev URL",
-		"      ▸ api":         " api has no dev URL",
-		"      ▸ Bugfix":      " api has no dev URL",
-		"    ▾ login :3001":   "http://localhost:3001",
+		"1     ▸ api":         " api has no dev URL",
+		"2     ▸ Bugfix":      " api has no dev URL",
+		"3   ▾ login :3001":   "http://localhost:3001",
 		"        0 shell":     "http://localhost:3001",
 		"        1 dev":       "http://localhost:3001",
 		"      docs :3002":    "http://localhost:3002",
 		"      api--rebase ±": " api--rebase has no dev URL",
 		"      api--gone ✗":   " api--gone is missing",
-		"    ▸ spike":         " spike has no dev URL",
+		"4   ▸ spike":         " spike has no dev URL",
 		"  ▾ notes":           " notes has no dev URL",
-		"    ▸ notes":         " notes has no dev URL",
+		"5   ▸ notes":         " notes has no dev URL",
 		"  ▾ Zed":             "http://localhost:3000",
-		"    ▸ zed :3000":     "http://localhost:3000",
-		"    ▸ agent :3005":   "http://localhost:3005/app",
+		"6   ▸ zed :3000":     "http://localhost:3000",
+		"7   ▸ agent :3005":   "http://localhost:3005/app",
 	}
 	if got := onEveryRow(t, m, press("o"), o.browser); !maps.Equal(got, want) {
 		t.Errorf("o opened %q, want %q", got, want)

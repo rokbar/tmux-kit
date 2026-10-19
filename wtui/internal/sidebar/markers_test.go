@@ -27,19 +27,19 @@ func TestDirtyAndDevPortMarkers(t *testing.T) {
 	want := ` wtui
   ▾ api
     ▾ main ±
-      ▸ api
-      ▸ Bugfix
-    ▾ login ± :3001
+1     ▸ api
+2     ▸ Bugfix
+3   ▾ login ± :3001
         0 shell
         1 dev
       docs :3002
       api--rebase ±
       api--gone ✗
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed
-    ▸ zed
-    ▸ agent`
+5   ▸ zed
+6   ▸ agent`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -53,7 +53,7 @@ func TestALongNameIsCutBeforeItsMarkers(t *testing.T) {
 	fix := &f.wt.lists["/p/api"][1]
 	fix.State, fix.DevURL = wt.Dirty, "http://localhost:3001"
 	m, _ := update(t, started(t, f), tea.WindowSizeMsg{Width: 24, Height: 30})
-	if got := plain(m); !strings.Contains(got, "\n    ▾ a-long-… ± :3001\n        0 shell\n") {
+	if got := plain(m); !strings.Contains(got, "\n3   ▾ a-long-… ± :3001\n        0 shell\n") {
 		t.Errorf("view:\n%s\nwant a-long-session-name cut short, with its markers", got)
 	}
 }
@@ -277,24 +277,24 @@ func TestAFailedListingSaysWhyUntilTheNextOneWorks(t *testing.T) {
 	m, c := ticking(t, f)
 	tmuxs := ` wtui
   ▾ api
-    ▸ api
-    ▾ login
+1   ▸ api
+2   ▾ login
         0 shell
         1 dev
   ▾ notes
-    ▸ notes`
+3   ▸ notes`
 	worktrees := ` wtui
   ▾ api
-    ▸ api
-    ▾ login
+1   ▸ api
+2   ▾ login
         0 shell
         1 dev
       docs
       api--rebase ±
       api--gone ✗
   ▾ notes
-    ▸ notes`
-	zed := "\n  ▾ Zed\n    ▸ zed\n      agent-1"
+3   ▸ notes`
+	zed := "\n  ▾ Zed\n4   ▸ zed\n      agent-1"
 	tooOld := "\nwt is too old for wtui (update tmux-kit): usage: wt [options] <branch>"
 	if got, want := plain(m), tmuxs+zed+tooOld; got != want {
 		t.Fatalf("with wt too old for api, the view is:\n%s\nwant:\n%s", got, want)
@@ -311,7 +311,7 @@ func TestAFailedListingSaysWhyUntilTheNextOneWorks(t *testing.T) {
 	tick("that listed api", worktrees+zed)
 	gone := wtFailure{wt.ErrNotFound, "wt not found on PATH"}
 	f.wt.fails = map[string]error{"/p/api": gone, "/p/Zed": gone}
-	tick("without wt", tmuxs+"\n  ▾ Zed\n    ▸ zed\nwt not found on PATH")
+	tick("without wt", tmuxs+"\n  ▾ Zed\n4   ▸ zed\nwt not found on PATH")
 	f.wt.fails = nil
 	if got, want := plain(rebuilt(t, m, f)), worktrees+zed; got != want {
 		t.Errorf("after a build with wt back, the view is:\n%s\nwant:\n%s", got, want)

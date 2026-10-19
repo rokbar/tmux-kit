@@ -113,19 +113,19 @@ func TestAGitProjectListsItsMainCloneThenItsWorktrees(t *testing.T) {
 	want := ` wtui
   ▾ api
     ▾ main
-      ▸ api
-      ▸ Bugfix
-    ▾ login
+1     ▸ api
+2     ▸ Bugfix
+3   ▾ login
         0 shell
         1 dev
       docs
       api--rebase ±
       api--gone ✗
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed
-    ▸ zed
-    ▸ agent`
+5   ▸ zed
+6   ▸ agent`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -137,18 +137,18 @@ func TestWorktreesWithoutASessionAreDimmed(t *testing.T) {
 	f := worktrees()
 	m, _ := update(t, started(t, f), tea.BlurMsg{}) // no cursor
 	want := map[string]string{
-		"  ▾ api": "36", "    ▾ main": "", "      ▸ api": "", "      ▸ Bugfix": "",
-		"    ▾ login": "1;36", "        0 shell": "", "        1 dev": "1",
+		"  ▾ api": "36", "    ▾ main": "", "1     ▸ api": "", "2     ▸ Bugfix": "",
+		"3   ▾ login": "1;36", "        0 shell": "", "        1 dev": "1",
 		"      docs": "2", "      api--rebase ±": "2", "      api--gone ✗": "2",
-		"  ▾ notes": "", "    ▸ notes": "", "  ▾ Zed": "", "    ▸ zed": "", "    ▸ agent": "",
+		"  ▾ notes": "", "4   ▸ notes": "", "  ▾ Zed": "", "5   ▸ zed": "", "6   ▸ agent": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("the rows' styles are %q, want %q", got, want)
 	}
 	m, _ = update(t, m, Active{Session: "$5"})
-	if got := styles(m); got["  ▾ api"] != "36" || got["    ▾ main"] != "36" || got["      ▾ Bugfix"] != "1;36" {
+	if got := styles(m); got["  ▾ api"] != "36" || got["    ▾ main"] != "36" || got["2     ▾ Bugfix"] != "1;36" {
 		t.Errorf("with Bugfix active, api is styled %q, main %q and Bugfix %q, want all highlighted",
-			got["  ▾ api"], got["    ▾ main"], got["      ▾ Bugfix"])
+			got["  ▾ api"], got["    ▾ main"], got["2     ▾ Bugfix"])
 	}
 }
 
@@ -162,11 +162,11 @@ func TestEnterOnAWorktreeWithSessionsFoldsIt(t *testing.T) {
 		t.Fatalf("the cursor is on %q, want main", got)
 	}
 	m, cmd := update(t, m, enter)
-	if cmd != nil || !strings.Contains(plain(m), "    ▸ main\n    ▾ login") {
+	if cmd != nil || !strings.Contains(plain(m), "    ▸ main\n3   ▾ login") {
 		t.Errorf("after enter on main, the view is:\n%s", plain(m))
 	}
 	m, _ = update(t, m, enter)
-	if !strings.Contains(plain(m), "    ▾ main\n      ▸ api\n      ▸ Bugfix\n    ▾ login") {
+	if !strings.Contains(plain(m), "    ▾ main\n1     ▸ api\n2     ▸ Bugfix\n3   ▾ login") {
 		t.Errorf("after enter on main again, the view is:\n%s", plain(m))
 	}
 	for range 8 {
@@ -212,10 +212,10 @@ func TestEnterOnAWorktreeWithoutASessionOpensItThenShowsIt(t *testing.T) {
 		t.Errorf("enter asked the host %q, want %q", f.host.asked, want)
 	}
 	view := plain(m)
-	if !strings.Contains(view, "    ▸ login\n    ▾ docs\n        0 shell\n      api--rebase") {
+	if !strings.Contains(view, "3   ▸ login\n4   ▾ docs\n        0 shell\n      api--rebase") {
 		t.Errorf("view:\n%s\nwant docs's session there, active", view)
 	}
-	if got := cursor(t, m); got != "    ▾ docs" {
+	if got := cursor(t, m); got != "4   ▾ docs" {
 		t.Errorf("the cursor is on %q, want docs's session", got)
 	}
 }
@@ -246,7 +246,7 @@ func TestTheCursorStaysOnItsSessionOrWorktree(t *testing.T) {
 	f.normal.snap.Sessions = append(f.normal.snap.Sessions, session(7, "tests", "/p/api--fix-login", "shell"))
 	f.repos.clones["/p/api--fix-login"] = "/p/api"
 	m = rebuilt(t, m, f)
-	if got := cursor(t, m); got != "      ▾ login" {
+	if got := cursor(t, m); got != "3     ▾ login" {
 		t.Errorf("with a second session in fix-login, the cursor is on %q, want login, now under fix-login:\n%s", got, plain(m))
 	}
 	m = keys(t, m, press("k")) // fix-login
@@ -255,7 +255,7 @@ func TestTheCursorStaysOnItsSessionOrWorktree(t *testing.T) {
 	}
 	f.normal.snap.Sessions = without(f.normal.snap.Sessions, "$2")
 	m = rebuilt(t, m, f)
-	if got := cursor(t, m); got != "    ▸ tests" {
+	if got := cursor(t, m); got != "3   ▸ tests" {
 		t.Errorf("with login gone, the cursor is on %q, want tests, fix-login's one session now:\n%s", got, plain(m))
 	}
 	f.normal.snap.Sessions = without(f.normal.snap.Sessions, "$7")
@@ -275,12 +275,12 @@ func TestAnOldWtListsTheProjectAsTmuxSeesIt(t *testing.T) {
 	m := started(t, f)
 	want := ` wtui
   ▾ api
-    ▸ api
-    ▾ login
+1   ▸ api
+2   ▾ login
         0 shell
         1 dev
   ▾ notes
-    ▸ notes
+3   ▸ notes
 wt is too old for wtui (update tmux-kit): usage: wt [options] <branch>`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -296,16 +296,16 @@ func TestNoWtSaysSoOnce(t *testing.T) {
 	m := started(t, f)
 	want := ` wtui
   ▾ api
-    ▸ api
-    ▸ Bugfix
-    ▾ login
+1   ▸ api
+2   ▸ Bugfix
+3   ▾ login
         0 shell
         1 dev
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed
-    ▸ agent
-    ▸ zed
+5   ▸ agent
+6   ▸ zed
 wt not found on PATH`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -321,7 +321,7 @@ func TestASessionInNoListedWorktreeComesAfterThem(t *testing.T) {
 	f.repos.clones["/p/api--spike"] = "/p/api"
 	f.repos.clones["/p/api--new"] = "/p/api"
 	m := started(t, f)
-	if got := plain(m); !strings.Contains(got, "      api--gone ✗\n    ▸ new\n    ▸ spike\n  ▾ notes") {
+	if got := plain(m); !strings.Contains(got, "      api--gone ✗\n4   ▸ new\n5   ▸ spike\n  ▾ notes") {
 		t.Errorf("view:\n%s\nwant new and spike after api's worktrees", got)
 	}
 }

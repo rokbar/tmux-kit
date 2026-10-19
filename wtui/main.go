@@ -5,11 +5,13 @@
 //	wtui              launch: a host on this terminal
 //	wtui --version    print the version
 //
-// The host runs the rest itself, each reaching the normal server by the
-// socket the launcher found it on:
+// The host runs the rest itself; the sidebar and the right side reach the
+// normal server by the socket the launcher found it on:
 //
 //	wtui -S <socket> sidebar           the sidebar, in the host's left pane
 //	wtui -S <socket> right [<session>] the right side's wrapper, in its right pane
+//	wtui press <key>                   has the sidebar press a held key, for the
+//	                                   host's bindings
 //	wtui popup                         the old popup, kept until the host replaces it
 package main
 
@@ -47,6 +49,10 @@ func main() {
 		err = runSidebar(*socket)
 	case "right":
 		err = host.Right(&tmux.Client{Socket: *socket}, flag.Arg(1))
+	case "press":
+		// The sidebar's failures are the sidebar's to show, and the host's
+		// bindings make sure nothing shows of this.
+		err = host.Press(flag.Arg(1))
 	case "popup":
 		err = runPopup()
 	default:
@@ -76,7 +82,7 @@ func runSidebar(socket string) error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	normal := &tmux.Client{Socket: socket}
 	key := normal.Key()
-	h, err := host.Sidebar(key, normal.Width())
+	h, err := host.Sidebar(key, normal.Width(), sidebar.Keys())
 	if err != nil {
 		return err
 	}
@@ -106,6 +112,11 @@ func runSidebar(socket string) error {
 			p.Send(ev)
 		}
 	}()
+	go h.Serve(func(key string) {
+		done := make(chan struct{})
+		p.Send(sidebar.Press{Key: key, Done: done})
+		<-done
+	})
 	_, err = p.Run()
 	return errors.Join(err, watch.Close(), h.Close())
 }

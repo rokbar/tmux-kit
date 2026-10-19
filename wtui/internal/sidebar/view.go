@@ -155,11 +155,15 @@ func (m Model) highlight(n *tree.Node) []string {
 // rows are the tree's rows that show, top to bottom.
 func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
-// row is how row r shows: after a two-column margin (where session numbers
-// go), indented by its depth, a fold mark if it has children, its name, and
-// then its markers (see markers). A name too long for the sidebar (short of
-// the agent state's column) is cut short before its markers are.
+// row is how row r shows: after a two-column margin, which has a session's
+// number, indented by its depth, a fold mark if it has children, its name,
+// and then its markers (see markers). A name too long for the sidebar (short
+// of the agent state's column) is cut short before its markers are.
 func (m Model) row(r tree.Row) string {
+	margin := "  "
+	if r.Number > 0 {
+		margin = fmt.Sprintf("%d ", r.Number)
+	}
 	mark := " "
 	if len(r.Children) > 0 {
 		mark = "▸"
@@ -171,7 +175,7 @@ func (m Model) row(r tree.Row) string {
 	if r.ID.Kind == tree.Window {
 		name = fmt.Sprintf("%d %s", r.Index, r.Name)
 	}
-	lead, marks := "  "+strings.Repeat("  ", r.Depth)+mark+" ", markers(r.Node)
+	lead, marks := margin+strings.Repeat("  ", r.Depth)+mark+" ", markers(r.Node)
 	if m.width > 0 && marks != "" {
 		name = ansi.Truncate(name, m.width-agentColumn-ansi.StringWidth(lead+marks), "…")
 	}

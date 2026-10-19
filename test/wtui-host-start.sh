@@ -60,7 +60,7 @@ wait_until "the wtui key to focus the right side" focus_on t3 right
 type_in t3 exit Enter
 wait_until "exit to end latest, and the right side to show next" eval '[ "$(showing t3)" = next ]'
 wait_until "the sidebar to take focus once latest ended" focus_on t3 sidebar
-wait_until "the cursor to be on next" cursor_on t3 '    ▾ next'
+wait_until "the cursor to be on next" cursor_on t3 '4   ▾ next'
 if tmux has-session -t =latest 2>/dev/null; then fail "latest is still there after exit"; fi
 [ "$(tmux show-options -gv detach-on-destroy)" = "$detach_on_destroy" ] ||
   fail "detach-on-destroy is $(tmux show-options -gv detach-on-destroy), was $detach_on_destroy"
@@ -80,6 +80,6 @@ wait_until "the sidebar to show no session" sidebar_shows t3 ' wtui'
 if launcher_exited t3; then fail "wtui exited when the last session ended"; fi
 new_session delta
 wait_until "the right side to show delta, made outside" eval '[ "$(showing t3)" = delta ]'
-wait_until "the cursor to be on delta" cursor_on t3 '    ▾ delta'
+wait_until "the cursor to be on delta" cursor_on t3 '1   ▾ delta'
 
 echo "ok: wtui-host-start"

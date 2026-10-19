@@ -59,29 +59,29 @@ agent gamma done # before launch: the snapshot has it
 launch t1
 wait_until "the sidebar to show the tree" eval '[ "$(sidebar_text t1 | unmarked)" = " wtui
   ▾ work
-    ▸ alpha
-    ▾ beta
+1   ▸ alpha
+2   ▾ beta
         0 shell
-    ▸ gamma" ]'
-marked '    ▸ gamma' ✓ || fail "at launch, gamma is marked '$(mark '    ▸ gamma')', want ✓"
+3   ▸ gamma" ]'
+marked '3   ▸ gamma' ✓ || fail "at launch, gamma is marked '$(mark '3   ▸ gamma')', want ✓"
 marked '  ▾ work' ✓ || fail "at launch, work is marked '$(mark '  ▾ work')', want ✓"
-marked '    ▾ beta' '' || fail "at launch, beta is marked '$(mark '    ▾ beta')', want nothing"
+marked '2   ▾ beta' '' || fail "at launch, beta is marked '$(mark '2   ▾ beta')', want nothing"
 
 # needs you, in a session that isn't shown, on its row and its project's,
 # whose done it outranks
 agent alpha needs-you
-soon "alpha to need you" marked '    ▸ alpha' '!'
+soon "alpha to need you" marked '1   ▸ alpha' '!'
 marked '  ▾ work' '!' || fail "work is marked '$(mark '  ▾ work')', want ! from alpha"
 agent beta working
-soon "beta to be working" marked '    ▾ beta' '*'
+soon "beta to be working" marked '2   ▾ beta' '*'
 marked '        0 shell' '*' || fail "beta's shell is marked '$(mark '        0 shell')', want *"
 
 # enter on gamma shows it: its done clears, on the normal server too
 type_in t1 j j
-wait_until "the cursor to be on gamma" eval '[ "$(cursor_row t1 | unmarked)" = "    ▸ gamma" ]'
+wait_until "the cursor to be on gamma" eval '[ "$(cursor_row t1 | unmarked)" = "3   ▸ gamma" ]'
 type_in t1 Enter
 wait_until "enter to show gamma" eval '[ "$(showing t1)" = gamma ]'
-soon "gamma's done to clear" marked '    ▾ gamma' ''
+soon "gamma's done to clear" marked '3   ▾ gamma' ''
 soon "gamma's options to go" eval '[ -z "$(options gamma)" ]'
 
 # Other states never clear: alpha shown (from outside, as prefix s would)
@@ -89,14 +89,14 @@ soon "gamma's options to go" eval '[ -z "$(options gamma)" ]'
 tmux switch-client -c "$(nested_client t1)" -t =alpha
 wait_until "alpha to be shown" eval '[ "$(showing t1)" = alpha ]'
 sleep 1.5 # a subscription's worth and then some
-marked '    ▾ alpha' '!' || fail "with alpha shown, it's marked '$(mark '    ▾ alpha')', want !"
+marked '1   ▾ alpha' '!' || fail "with alpha shown, it's marked '$(mark '1   ▾ alpha')', want !"
 case "$(options alpha)" in '@agent_state needs-you, @agent_state_at '*) ;; *) fail "alpha's options are $(options alpha)" ;; esac
 case "$(options beta)" in '@agent_state working, @agent_state_at '*) ;; *) fail "beta's options are $(options beta)" ;; esac
 
 # done arriving in the window shown clears too
 agent alpha done
 soon "alpha's done, shown, to clear" eval '[ -z "$(options alpha)" ]'
-soon "alpha's row to show nothing" marked '    ▾ alpha' ''
+soon "alpha's row to show nothing" marked '1   ▾ alpha' ''
 marked '  ▾ work' '*' || fail "work is marked '$(mark '  ▾ work')', want * from beta"
 
 echo "ok: wtui-host-agents"

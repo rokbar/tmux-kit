@@ -25,13 +25,13 @@ tmux rename-window -t =beta: shell
 launch t1
 tree=' wtui
   ▾ api
-    ▸ api
-    ▸ fix
+1   ▸ api
+2   ▸ fix
   ▾ work
-    ▸ alpha
-    ▾ beta
+3   ▸ alpha
+4   ▾ beta
         0 shell
-    ▸ gamma'
+5   ▸ gamma'
 wait_until "the sidebar to show the tree" sidebar_shows t1 "$tree"
 [ "$(focus t1)" = sidebar ] || fail "focus starts on the $(focus t1), want the sidebar"
 
@@ -39,9 +39,9 @@ wait_until "the sidebar to show the tree" sidebar_shows t1 "$tree"
 # Moving it changes nothing on the right; enter on gamma shows gamma there,
 # with focus there too, and the cursor goes.
 cursor_on() { [ "$(cursor_row t1)" = "$1" ]; }
-wait_until "the cursor to show on beta" cursor_on '    ▾ beta'
+wait_until "the cursor to show on beta" cursor_on '4   ▾ beta'
 type_in t1 j j
-wait_until "j j to move the cursor to gamma" cursor_on '    ▸ gamma'
+wait_until "j j to move the cursor to gamma" cursor_on '5   ▸ gamma'
 [ "$(showing t1)" = beta ] || fail "moving the cursor moved the right side to '$(showing t1)'"
 type_in t1 Enter
 wait_until "enter on gamma to show it on the right" eval '[ "$(showing t1)" = gamma ]'

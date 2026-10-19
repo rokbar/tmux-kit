@@ -22,7 +22,7 @@ tmux rename-window -t =api: shell
 
 launch t1 "$tmp"
 tree() {
-  printf ' wtui\n  ▾ api\n    ▾ api\n        0 shell\n      docs%s\n    ▸ fix%s' "$1" "$2"
+  printf ' wtui\n  ▾ api\n1   ▾ api\n        0 shell\n      docs%s\n2   ▸ fix%s' "$1" "$2"
 }
 wait_until "the sidebar to show api's worktrees, clean" sidebar_shows t1 "$(tree '' '')"
 

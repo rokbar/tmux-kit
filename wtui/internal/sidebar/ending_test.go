@@ -27,24 +27,24 @@ func TestWhenTheActiveSessionEndsTheSidebarTakesFocus(t *testing.T) {
 		t.Errorf("when the active session ended, the sidebar asked the host %q, want %q", f.host.asked, want)
 	}
 	m, _ = update(t, m, tea.FocusMsg{}) // as tmux says, once the sidebar has focus
-	if got := cursor(t, m); got != "    ▾ notes" {
+	if got := cursor(t, m); got != "4   ▾ notes" {
 		t.Errorf("once the sidebar has focus, the cursor is on %q, want notes, the session shown now", got)
 	}
 	m, build := update(t, m, tmux.SessionsChanged{})
 	m = feed(t, m, build)
 	want := ` wtui
   ▾ api
-    ▸ api
-    ▸ Bugfix
+1   ▸ api
+2   ▸ Bugfix
   ▾ notes
-    ▾ notes
+3   ▾ notes
         0 vim
   ▾ Zed
-    ▸ zed`
+4   ▸ zed`
 	if got := plain(m); got != want {
 		t.Errorf("after the tree caught up, the view is:\n%s\nwant:\n%s", got, want)
 	}
-	if got := cursor(t, m); got != "    ▾ notes" {
+	if got := cursor(t, m); got != "3   ▾ notes" {
 		t.Errorf("after the tree caught up, the cursor is on %q, want notes", got)
 	}
 }
@@ -55,7 +55,7 @@ func TestWhenTheActiveSessionEndsInTheSidebarTheCursorMovesAtOnce(t *testing.T) 
 	f := fixture()
 	m := keys(t, focused(t, f), press("j"))
 	m, _ = update(t, m, tmux.ActiveSessionChanged{Session: "$3", Ended: true})
-	if got := cursor(t, m); got != "    ▾ notes" {
+	if got := cursor(t, m); got != "4   ▾ notes" {
 		t.Errorf("the cursor is on %q, want notes, the session shown now", got)
 	}
 }
@@ -86,7 +86,7 @@ func TestWithNoSessionLeftTheTreeIsEmptyUntilOneComes(t *testing.T) {
 		m, build = update(t, m, tmux.SessionsChanged{})
 		m, _ = update(t, m, tmux.ActiveSessionChanged{Session: "$9"})
 		m = feed(t, m, build)
-		if got := cursor(t, m); got != "    ▾ delta" {
+		if got := cursor(t, m); got != "1   ▾ delta" {
 			t.Errorf("focus first: %v; once delta is shown, the cursor is on %q, want delta", focusFirst, got)
 		}
 	}

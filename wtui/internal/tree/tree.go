@@ -69,6 +69,9 @@ type Node struct {
 	Agent    tmux.AgentState
 	Parent   *Node
 	Children []*Node
+	// Number is a session's number, 1 to 9 for the first nine sessions in
+	// the tree's order, 0 for the rest (and for every other row).
+	Number int
 }
 
 // Tree is the sidebar's tree. It doesn't change once built.
@@ -81,7 +84,8 @@ type Tree struct {
 // folder: the main clone if the folder is in a git repo, otherwise the
 // folder itself. Projects are labelled by folder name and alphabetical. A
 // git project's rows are its main clone and worktrees (see worktrees); in
-// any other project, sessions go by name. Windows go by index.
+// any other project, sessions go by name. Windows go by index. The first
+// nine sessions in that order are numbered.
 func Build(src Sources) *Tree {
 	t := &Tree{byID: map[ID]*Node{}}
 	projects := map[string]*Node{}
@@ -121,6 +125,11 @@ func Build(src Sources) *Tree {
 		rollUp(p, agents)
 	}
 	t.index(t.Projects)
+	for i, s := range t.Sessions() {
+		if i < 9 {
+			s.Number = i + 1
+		}
+	}
 	return t
 }
 
@@ -258,6 +267,48 @@ func (t *Tree) Nearest(old *Tree, id ID) ID {
 		return t.Nearest(old, n.Parent.ID)
 	}
 	return ID{}
+}
+
+// Sessions are the tree's sessions in order, top to bottom, folded or not.
+func (t *Tree) Sessions() []*Node {
+	if t == nil {
+		return nil
+	}
+	return sessionsIn(t.Projects)
+}
+
+// sessionsIn are the sessions among nodes and beneath them, in order.
+func sessionsIn(nodes []*Node) []*Node {
+	var sessions []*Node
+	for _, n := range nodes {
+		if n.ID.Kind == Session {
+			sessions = append(sessions, n)
+		} else {
+			sessions = append(sessions, sessionsIn(n.Children)...)
+		}
+	}
+	return sessions
+}
+
+// Next is the session by places after session (an id) among the sessions of
+// its project, in order, going round from the last to the first (before it
+// for a negative by). It's nil if the tree hasn't session, or session is its
+// project's only one.
+func (t *Tree) Next(session string, by int) *Node {
+	n := t.Node(ID{Session, session})
+	if n == nil {
+		return nil
+	}
+	project := n
+	for project.Parent != nil {
+		project = project.Parent
+	}
+	in := sessionsIn([]*Node{project})
+	if len(in) < 2 {
+		return nil
+	}
+	i := slices.Index(in, n) + by
+	return in[(i%len(in)+len(in))%len(in)]
 }
 
 // Row is a node as the sidebar lists it, at its depth: projects are at 0.

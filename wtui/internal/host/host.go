@@ -2,13 +2,17 @@
 // launch, whose one window holds the sidebar on the left and, on the right, a
 // nested tmux client attached to the normal server. It's the only code that
 // knows the host server's command line: the launcher, the right side's
-// wrapper, and what the sidebar asks of the host.
+// wrapper, what the sidebar asks of the host, and the keys the host has the
+// sidebar press.
 package host
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,9 +26,10 @@ import (
 )
 
 // config is the host server's whole config, written for each launch. The
-// host has no prefix and binds nothing but the wtui key (bound once the panes
-// are known, see Sidebar) and two mouse bindings, so every other key and
-// mouse event reaches the side that has focus as it is: a click focuses a
+// host has no prefix and binds nothing but the wtui key and the sidebar's
+// held keys (bound once the panes are known, see Sidebar), and two mouse
+// bindings, so every other key and mouse event reaches the side that has
+// focus as it is (the held keys too, on the right side): a click focuses a
 // side, dragging the border resizes the sidebar, and the wheel reaches the
 // nested client's own mouse mode. set-clipboard passes the nested client's
 // OSC 52 copies on to the terminal. The terminal's title is the right pane's,
@@ -102,6 +107,20 @@ func (h *Host) commands(c string) string {
 	return strings.NewReplacer("SIDEBAR", h.sidebar, "RIGHT", h.right, "NARROW", strconv.Itoa(narrow)).Replace(c)
 }
 
+// Key is a sidebar key, for the host to bind (see Sidebar).
+type Key struct {
+	// Tmux is the key as tmux names it; Name as the sidebar does, which
+	// Press passes on.
+	Tmux, Name string
+	// Held is whether focus can go to the right side after it: the host has
+	// the sidebar press it, and holds the keys typed after it until it's
+	// done, so that they land on whichever side it leaves focus.
+	Held bool
+	// Repeats is whether it repeats after the wtui key without it, for as
+	// long as tmux's repeat-time.
+	Repeats bool
+}
+
 // ErrInTmux is the launcher's refusal inside tmux.
 var ErrInTmux = errors.New("already in tmux, where prefix s and prefix W switch sessions: run wtui in a plain terminal")
 
@@ -112,10 +131,14 @@ type Host struct {
 	dir string
 	// the sidebar's and the right side's panes, once known
 	sidebar, right string
+	// presses is where the sidebar takes the held keys the host has it
+	// press (see Serve)
+	presses net.Listener
 }
 
-func (h *Host) socket() string     { return filepath.Join(h.dir, "socket") }
-func (h *Host) configFile() string { return filepath.Join(h.dir, "host.conf") }
+func (h *Host) socket() string      { return filepath.Join(h.dir, "socket") }
+func (h *Host) configFile() string  { return filepath.Join(h.dir, "host.conf") }
+func (h *Host) pressSocket() string { return filepath.Join(h.dir, "keys") }
 
 // tmux is a tmux command for the host server.
 func (h *Host) tmux(args ...string) *exec.Cmd {
@@ -219,14 +242,13 @@ func here() (*Host, error) {
 }
 
 // Sidebar is the host whose sidebar runs in this process's pane. It learns
-// the right side's pane and binds the wtui key, key, in the host's root
-// table: from the right it focuses the sidebar (showing it, if hidden), and
-// from the sidebar the right. It holds the sidebar at width columns until a
-// drag on the border sets another width, and hides it while the terminal is
+// the right side's pane and binds the wtui key, key, and the sidebar's keys,
+// keys (see bindKeys). It holds the sidebar at width columns until a drag
+// on the border sets another width, and hides it while the terminal is
 // narrow, from now on. If the host hangs up (the terminal has gone, so the
 // host server has exited), it removes the host's folder and exits the
 // process.
-func Sidebar(key string, width int) (*Host, error) {
+func Sidebar(key string, width int, keys []Key) (*Host, error) {
 	h, err := here()
 	if err != nil {
 		return nil, err
@@ -253,10 +275,11 @@ func Sidebar(key string, width int) (*Host, error) {
 		os.Exit(0)
 	}()
 
-	err = h.run("bind-key", "-n", key, "if-shell", "-F", "#{==:#{pane_id},"+h.sidebar+"}",
-		"select-pane -t "+h.right, "select-pane -t "+h.sidebar)
-	if err != nil {
-		return nil, fmt.Errorf("can't bind the wtui key %s: %w", key, err)
+	if h.presses, err = net.Listen("unix", h.pressSocket()); err != nil {
+		return nil, err
+	}
+	if err := h.bindKeys(key, keys); err != nil {
+		return nil, fmt.Errorf("can't bind the wtui key %s and the sidebar's keys: %w", key, err)
 	}
 	// Running the window-resized hook once fits the sidebar to the terminal
 	// as it is at launch.
@@ -269,6 +292,97 @@ func Sidebar(key string, width int) (*Host, error) {
 		return nil, fmt.Errorf("can't size the sidebar: %w", err)
 	}
 	return h, nil
+}
+
+// bindKeys binds the wtui key, key, in the host's root table: from the right
+// side it focuses the sidebar (showing it, if hidden) and has the next key
+// pressed there, as the wtui table binds it; from the sidebar, it focuses
+// the right side. The wtui table binds every sidebar key, keys, since a key
+// a table doesn't bind is lost: a held key the host has the sidebar press
+// (see Press), and any other it passes on to the sidebar, where it acts on
+// the active session (getting focus puts the cursor there). A held key is
+// bound in the root table too, so that while the sidebar has focus, it's the
+// host that has the sidebar press it; elsewhere it passes on as it is.
+func (h *Host) bindKeys(key string, keys []Key) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	onSidebar := "#{==:#{pane_id}," + h.sidebar + "}"
+	args := []string{"bind-key", "-n", key, "if-shell", "-F", onSidebar,
+		"select-pane -t " + h.right, "select-pane -t " + h.sidebar + " ; switch-client -T wtui"}
+	for _, k := range keys {
+		args = append(args, ";", "bind-key")
+		if k.Repeats {
+			args = append(args, "-r")
+		}
+		args = append(args, "-T", "wtui", k.Tmux)
+		if !k.Held {
+			// with no key, send-keys sends the one pressed
+			args = append(args, "send-keys", "-t", h.sidebar)
+			continue
+		}
+		// Words for sh; run-shell expands formats, so # is ##. A command
+		// that fails would show in the pane, so none does.
+		press := strings.ReplaceAll(shellQuote(exe)+" press "+shellQuote(k.Name)+" >/dev/null 2>&1 || true", "#", "##")
+		args = append(args, "run-shell", press,
+			";", "bind-key", "-n", k.Tmux, "if-shell", "-F", onSidebar, "run-shell "+tmuxQuote(press), "send-keys")
+	}
+	return h.run(args...)
+}
+
+// shellQuote is s as one word for sh.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// tmuxQuote is s as one word of a tmux command.
+func tmuxQuote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`).Replace(s) + `"`
+}
+
+// pressTimeout is how long, at most, the host holds the keys typed after a
+// held key, should the sidebar not say it's done with it.
+const pressTimeout = 5 * time.Second
+
+// Press is what the host runs for a held key (see Key): it has the sidebar
+// press the key named name (see Serve), and returns once the sidebar has
+// done all the key does, or after pressTimeout. Until then, the host holds
+// the keys typed after it.
+func Press(name string) error {
+	h, err := here()
+	if err != nil {
+		return err
+	}
+	conn, err := net.DialTimeout("unix", h.pressSocket(), pressTimeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(pressTimeout))
+	if _, err := fmt.Fprintln(conn, name); err != nil {
+		return err
+	}
+	_, err = io.Copy(io.Discard, conn) // until the sidebar hangs up: it's done
+	return err
+}
+
+// Serve has the sidebar press the held keys the host sends it (see Press):
+// it calls press with each key's Name, and press returns once the key has
+// done all it does. It returns once the host has ended.
+func (h *Host) Serve(press func(name string)) {
+	for {
+		conn, err := h.presses.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer conn.Close()
+			conn.SetReadDeadline(time.Now().Add(pressTimeout))
+			name, err := bufio.NewReader(conn).ReadString('\n')
+			if err == nil {
+				press(strings.TrimSuffix(name, "\n"))
+			}
+		}()
+	}
 }
 
 // Hidden says whether the sidebar is hidden.
@@ -335,6 +449,7 @@ func (h *Host) Close() error {
 func (h *Host) cleanup() {
 	os.Remove(h.socket())
 	os.Remove(h.configFile())
+	os.Remove(h.pressSocket())
 	os.Remove(h.dir)
 }
 
