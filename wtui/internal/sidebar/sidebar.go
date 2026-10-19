@@ -100,12 +100,24 @@ type Model struct {
 	width, height int
 	top           int // the first row the view shows
 	status        status
+
+	// refreshing has the git projects (by main clone) whose worktrees are
+	// being listed again for their markers, true for those to be listed
+	// once more after that (see refresh).
+	refreshing map[string]bool
+	// unlisted has why wt couldn't list git projects' worktrees (by main
+	// clone), as their last listings, a build's or a refresh's, said.
+	unlisted map[string]error
+	// after is a command that gives msg once d has passed: tea.Tick's, but
+	// in tests.
+	after func(d time.Duration, msg tea.Msg) tea.Cmd
 }
 
 // New is the sidebar of a host, talking to clients, where key is the wtui
 // key.
 func New(c Clients, key string) Model {
-	return Model{c: c, key: key, hand: map[tree.ID]bool{}, focused: true, seek: true}
+	return Model{c: c, key: key, hand: map[tree.ID]bool{}, focused: true, seek: true,
+		refreshing: map[string]bool{}, unlisted: map[string]error{}, after: after}
 }
 
 // Rebuild asks the sidebar to build its tree again, in the background, from
@@ -121,10 +133,12 @@ type Active struct {
 
 // built is a build's result: the sources for the new tree, unless the
 // snapshot failed, and what went wrong on the way (the tree is still built
-// from what was found).
+// from what was found): why wt couldn't list a git project's worktrees, by
+// main clone, in unlisted, and any other failure in err.
 type built struct {
-	src *tree.Sources
-	err error
+	src      *tree.Sources
+	unlisted map[string]error
+	err      error
 }
 
 // shown is the right side showing session, once asked to, or why it
@@ -190,6 +204,7 @@ func build(normal Normal, repos Repos, w Wt, known map[string]string) built {
 		clones[s.Path] = main
 	}
 	lists := map[string][]wt.Worktree{}
+	unlisted := map[string]error{}
 	for _, s := range snap.Sessions {
 		main := clones[s.Path]
 		if _, ok := lists[main]; ok || main == "" {
@@ -197,12 +212,12 @@ func build(normal Normal, repos Repos, w Wt, known map[string]string) built {
 		}
 		rows, err := w.List(main)
 		if err != nil {
-			errs = append(errs, listFailure(err)) // the project shows as tmux sees it
+			unlisted[main] = err // the project shows as tmux sees it
 		}
 		lists[main] = rows
 	}
 	src := &tree.Sources{Snapshot: snap, MainClones: clones, Worktrees: lists}
-	return built{src, errors.Join(distinct(errs)...)}
+	return built{src, unlisted, errors.Join(distinct(errs)...)}
 }
 
 // listFailure is what the status line says when wt can't list a project's
@@ -257,13 +272,26 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case built:
 		m.building = false
 		m.status.build = errText(msg.err)
+		var tick tea.Cmd
 		if msg.src != nil {
-			m = m.withSources(*msg.src).toActive()
+			if m.tree == nil {
+				tick = m.tick() // the first tree: its markers refresh from now on
+			}
+			m.unlisted = msg.unlisted
+			m = m.withSources(*msg.src).toActive().sayUnlisted()
 		}
 		if m.again {
 			m.again = false
-			return m.rebuild()
+			var build tea.Cmd
+			m, build = m.rebuild()
+			return m, tea.Batch(tick, build)
 		}
+		return m, tick
+	case refreshDue:
+		m, refresh := m.refreshAll(false)
+		return m, tea.Batch(refresh, m.tick())
+	case refreshed:
+		return m.withRefreshed(msg)
 	case Active:
 		m.status.active = errText(msg.Err)
 		if msg.Err == nil {
@@ -275,11 +303,13 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.readActive
 	case shown:
 		m.status.action = errText(msg.err)
-		if msg.session != "" {
-			m.active = msg.session
-			// a window shown is now its session's current one
-			return m.inSight().rebuild()
+		if msg.session == "" {
+			return m.afterAction()
 		}
+		m.active = msg.session
+		// A window shown is now its session's current one. The build lists
+		// every git project, so it's afterAction's refresh too.
+		return m.inSight().rebuild()
 	case hostDone:
 		m.status.action = errText(msg.err)
 	}

@@ -119,7 +119,7 @@ func TestAGitProjectListsItsMainCloneThenItsWorktrees(t *testing.T) {
         0 shell
         1 dev
       docs
-      api--rebase
+      api--rebase ±
       api--gone ✗
   ▾ notes
     ▸ notes
@@ -139,7 +139,7 @@ func TestWorktreesWithoutASessionAreDimmed(t *testing.T) {
 	want := map[string]string{
 		"  ▾ api": "36", "    ▾ main": "", "      ▸ api": "", "      ▸ Bugfix": "",
 		"    ▾ login": "1;36", "        0 shell": "", "        1 dev": "1",
-		"      docs": "2", "      api--rebase": "2", "      api--gone ✗": "2",
+		"      docs": "2", "      api--rebase ±": "2", "      api--gone ✗": "2",
 		"  ▾ notes": "", "    ▸ notes": "", "  ▾ Zed": "", "    ▸ zed": "", "    ▸ agent": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {

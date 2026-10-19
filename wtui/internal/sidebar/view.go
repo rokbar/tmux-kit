@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,12 +13,13 @@ import (
 )
 
 // status is what the status line shows: the last failure of an action, of a
-// build and of reading the active session, whichever there are.
-type status struct{ action, build, active string }
+// build, of listing git projects' worktrees and of reading the active
+// session, whichever there are.
+type status struct{ action, build, lists, active string }
 
 func (s status) lines() []string {
 	var lines []string
-	for _, l := range []string{s.action, s.build, s.active} {
+	for _, l := range []string{s.action, s.build, s.lists, s.active} {
 		if l != "" && (len(lines) == 0 || lines[len(lines)-1] != l) {
 			lines = append(lines, l)
 		}
@@ -146,7 +148,7 @@ func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
 // row is how row r shows: after a two-column margin (where session numbers
 // go), indented by its depth, a fold mark if it has children, its name, and
-// then its markers: ✗ for a missing worktree.
+// then its markers (see markers).
 func (m Model) row(r tree.Row) string {
 	mark := " "
 	if len(r.Children) > 0 {
@@ -159,10 +161,28 @@ func (m Model) row(r tree.Row) string {
 	if r.ID.Kind == tree.Window {
 		name = fmt.Sprintf("%d %s", r.Index, r.Name)
 	}
-	if missing(r.Node) {
-		name += " ✗"
+	return "  " + strings.Repeat("  ", r.Depth) + mark + " " + name + markers(r.Node)
+}
+
+// markers are what node n's row shows after its name if it stands for a
+// worktree: ± if it's dirty, ✗ if it's missing, then its dev URL's port
+// (:3001), if the URL has one.
+func markers(n *tree.Node) string {
+	w := n.Worktree
+	if w == nil {
+		return ""
 	}
-	return "  " + strings.Repeat("  ", r.Depth) + mark + " " + name
+	var marks string
+	switch w.State {
+	case wt.Dirty:
+		marks = " ±"
+	case wt.Missing:
+		marks = " ✗"
+	}
+	if u, err := url.Parse(w.DevURL); err == nil && u.Port() != "" {
+		marks += " :" + u.Port()
+	}
+	return marks
 }
 
 // missing says whether n stands for a missing worktree.
