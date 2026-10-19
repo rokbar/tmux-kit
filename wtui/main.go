@@ -65,12 +65,15 @@ func launch() error {
 	return host.Launch(exe, &tmux.Client{})
 }
 
-// runSidebar runs the sidebar in its host until q, then closes the host.
+// runSidebar runs the sidebar in its host until q, then closes the host. The
+// normal server's changes reach the sidebar as they happen, from a Watch that
+// ends before the host does. (If the host hangs up instead, the Watch's
+// control client ends with this process.)
 func runSidebar() error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	normal := &tmux.Client{}
 	key := normal.Key()
-	h, err := host.Sidebar(key)
+	h, err := host.Sidebar(key, normal.Width())
 	if err != nil {
 		return err
 	}
@@ -82,12 +85,26 @@ func runSidebar() error {
 	if normal.Nested, err = h.RightTTY(); err != nil {
 		return errors.Join(err, h.Close())
 	}
+	watch := normal.Watch()
 	c := sidebar.Clients{
 		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
 		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{},
 	}
-	_, err = tea.NewProgram(sidebar.New(c, key)).Run()
-	return errors.Join(err, h.Close())
+	var m tea.Model = sidebar.New(c, key)
+	// The sidebar starts with focus, as the host gives it, unless it starts
+	// hidden (a narrow terminal): tmux moved focus right before the sidebar
+	// asked for focus events, so it won't say so.
+	if hidden, _ := h.Hidden(); hidden {
+		m, _ = m.Update(tea.BlurMsg{})
+	}
+	p := tea.NewProgram(m)
+	go func() {
+		for ev := range watch.Events() {
+			p.Send(ev)
+		}
+	}()
+	_, err = p.Run()
+	return errors.Join(err, watch.Close(), h.Close())
 }
 
 // runPopup is the popup the host replaces, unused by the launcher.

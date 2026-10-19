@@ -82,6 +82,31 @@ func TestKeyIsTheWtuiKeyOption(t *testing.T) {
 	}
 }
 
+// The sidebar's width is the @wtui-width option, in columns: 30 while it
+// isn't set, or isn't a number of columns.
+func TestWidthIsTheWtuiWidthOption(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	c := &tmux.Client{}
+	if got := c.Width(); got != 30 {
+		t.Errorf("with no server, Width() = %d, want 30", got)
+	}
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	if got := c.Width(); got != 30 {
+		t.Errorf("with @wtui-width unset, Width() = %d, want 30", got)
+	}
+	tmuxRun(t, "set-option", "-g", "@wtui-width", "42")
+	if got := c.Width(); got != 42 {
+		t.Errorf("with @wtui-width 42, Width() = %d", got)
+	}
+	for _, bad := range []string{"wide", "0", "-5", "25%", "3.5"} {
+		tmuxRun(t, "set-option", "-g", "@wtui-width", bad)
+		if got := c.Width(); got != 30 {
+			t.Errorf("with @wtui-width %s, Width() = %d, want 30", bad, got)
+		}
+	}
+}
+
 // The editor is the normal server's global TMUX_KIT_EDITOR, the one prefix e
 // runs: "" while it isn't set (or is marked for removal).
 func TestEditorIsTheGlobalTmuxKitEditor(t *testing.T) {
@@ -195,12 +220,13 @@ func TestReachesTheNormalServerFromInsideAHost(t *testing.T) {
 }
 
 // nestedClient attaches a client to session from the pane of a session
-// standing in for a terminal, as a host's right side does, and returns the
-// normal server's client for it.
+// standing in for a terminal, as a host's right side does (no-detach-on-
+// destroy, which tmux before 3.6 ignores), and returns the normal server's
+// client for it.
 func nestedClient(t *testing.T, session string) *tmux.Client {
 	t.Helper()
 	tmuxRun(t, "new-session", "-d", "-s", "term", "-x", "100", "-y", "30",
-		"env", "-u", "TMUX", "tmux", "attach", "-t", "="+session)
+		"env", "-u", "TMUX", "tmux", "attach", "-f", "no-detach-on-destroy", "-t", "="+session)
 	tty := tmuxRun(t, "display-message", "-p", "-t", "=term:", "#{pane_tty}")
 	waitFor(t, "the client to attach", func() bool { return showing(t, tty) != "" })
 	return &tmux.Client{Nested: tty}

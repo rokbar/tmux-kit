@@ -1,7 +1,7 @@
 // Package tmux is wtui's client for the normal tmux server, the one the
-// user's sessions are on: the only code that knows tmux's command line for
-// it. Each command runs with TMUX unset, so it reaches the normal server even
-// from a host's pane, where TMUX names the host.
+// user's sessions are on: the only code that knows tmux's command line and
+// control mode for it. Each command runs with TMUX unset, so it reaches the
+// normal server even from a host's pane, where TMUX names the host.
 package tmux
 
 import (
@@ -24,6 +24,10 @@ const MinVersion = "3.6"
 // DefaultKey is the wtui key while the normal server's @wtui-key option
 // isn't set.
 const DefaultKey = `C-\`
+
+// DefaultWidth is the sidebar's width in columns while the normal server's
+// @wtui-width option isn't set.
+const DefaultWidth = 30
 
 // Client is wtui's client for the normal server.
 type Client struct {
@@ -117,6 +121,17 @@ func (c *Client) Key() string {
 	return DefaultKey
 }
 
+// Width is the sidebar's width in columns: the normal server's @wtui-width
+// option, or DefaultWidth while it isn't set to a number of columns (or
+// there's no server).
+func (c *Client) Width() int {
+	v, err := c.output("show-options", "-gqv", "@wtui-width")
+	if n, convErr := strconv.Atoi(v); err == nil && convErr == nil && n > 0 {
+		return n
+	}
+	return DefaultWidth
+}
+
 // Editor is the editor's command line, as the normal server's global
 // TMUX_KIT_EDITOR has it (the one tmux-kit's prefix e runs), or "" while
 // that isn't set.
@@ -142,36 +157,48 @@ func (c *Client) Snapshot() (Snapshot, error) {
 	// keeps them (and UTF-8) since output runs tmux with -u.
 	out, err := c.output(
 		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_attached}\t#{session_name}\t#{session_path}", ";",
-		"list-windows", "-a", "-F", "W\t#{session_id}\t#{window_id}\t#{window_index}\t#{window_active}\t#{window_name}")
+		"list-windows", "-a", "-F", "W\t"+windowFormat)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	var snap Snapshot
 	at := map[string]int{} // a session's place in snap.Sessions, by id
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.SplitN(line, "\t", 6)
-		if len(f) < 6 {
-			continue
-		}
-		switch f[0] {
+		kind, rest, _ := strings.Cut(line, "\t")
+		switch kind {
 		case "S":
-			secs, _ := strconv.ParseInt(f[2], 10, 64)
-			attached, _ := strconv.Atoi(f[3])
-			at[f[1]] = len(snap.Sessions)
-			snap.Sessions = append(snap.Sessions, Session{
-				ID: f[1], Name: f[4], Path: f[5], Activity: time.Unix(secs, 0), Attached: attached,
-			})
-		case "W":
-			i, ok := at[f[1]]
-			if !ok {
+			f := strings.SplitN(rest, "\t", 5)
+			if len(f) < 5 {
 				continue
 			}
-			index, _ := strconv.Atoi(f[3])
-			s := &snap.Sessions[i]
-			s.Windows = append(s.Windows, Window{ID: f[2], Index: index, Name: f[5], Active: f[4] == "1"})
+			secs, _ := strconv.ParseInt(f[1], 10, 64)
+			attached, _ := strconv.Atoi(f[2])
+			at[f[0]] = len(snap.Sessions)
+			snap.Sessions = append(snap.Sessions, Session{
+				ID: f[0], Name: f[3], Path: f[4], Activity: time.Unix(secs, 0), Attached: attached,
+			})
+		case "W":
+			session, w, ok := parseWindow(rest)
+			if i, known := at[session]; ok && known {
+				snap.Sessions[i].Windows = append(snap.Sessions[i].Windows, w)
+			}
 		}
 	}
 	return snap, nil
+}
+
+// windowFormat is a window as list-windows -a lists it for parseWindow:
+// tab-separated, its name last.
+const windowFormat = "#{session_id}\t#{window_id}\t#{window_index}\t#{window_active}\t#{window_name}"
+
+// parseWindow is a line of windowFormat: the window, and its session's id.
+func parseWindow(line string) (session string, w Window, ok bool) {
+	f := strings.SplitN(line, "\t", 5)
+	if len(f) < 5 {
+		return "", Window{}, false
+	}
+	index, _ := strconv.Atoi(f[2])
+	return f[0], Window{ID: f[1], Index: index, Name: f[4], Active: f[3] == "1"}, true
 }
 
 // ActiveSession is the id of the session the nested client shows, or ""
