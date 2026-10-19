@@ -43,7 +43,9 @@ To use a different editor for `prefix e`, put
 
 ## Commands
 
-- `t [name]`: attach to or switch to a session for the current folder.
+- `t [-d] [name]`: attach to or switch to a session for the current folder,
+  creating it if needed. `-d` only creates it (detached) and prints its name,
+  for scripts.
 - `wt` (or `wt pick`, or `prefix W`): fzf branch picker. Bare `wt` opens it in
   a git repo with fzf installed, else prints help. `enter` opens the match, or
   creates the typed name if nothing matches; `alt-enter` creates the typed name
