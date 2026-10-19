@@ -5,11 +5,12 @@
 //	wtui              launch: a host on this terminal
 //	wtui --version    print the version
 //
-// The host runs the rest itself:
+// The host runs the rest itself, each reaching the normal server by the
+// socket the launcher found it on:
 //
-//	wtui sidebar           the sidebar, in the host's left pane
-//	wtui right [<session>] the right side's wrapper, in its right pane
-//	wtui popup             the old popup, kept until the host replaces it
+//	wtui -S <socket> sidebar           the sidebar, in the host's left pane
+//	wtui -S <socket> right [<session>] the right side's wrapper, in its right pane
+//	wtui popup                         the old popup, kept until the host replaces it
 package main
 
 import (
@@ -32,6 +33,7 @@ import (
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	socket := flag.String("S", "", "the normal server's `socket`, for the host's sidebar and right side")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("wtui", currentVersion())
@@ -42,9 +44,9 @@ func main() {
 	case "":
 		err = launch()
 	case "sidebar":
-		err = runSidebar()
+		err = runSidebar(*socket)
 	case "right":
-		err = host.Right(&tmux.Client{}, flag.Arg(1))
+		err = host.Right(&tmux.Client{Socket: *socket}, flag.Arg(1))
 	case "popup":
 		err = runPopup()
 	default:
@@ -65,13 +67,14 @@ func launch() error {
 	return host.Launch(exe, &tmux.Client{})
 }
 
-// runSidebar runs the sidebar in its host until q, then closes the host. The
-// normal server's changes reach the sidebar as they happen, from a Watch that
-// ends before the host does. (If the host hangs up instead, the Watch's
-// control client ends with this process.)
-func runSidebar() error {
+// runSidebar runs the sidebar in its host until q, then closes the host. It
+// reaches the normal server by socket. The normal server's changes reach the
+// sidebar as they happen, from a Watch that ends before the host does. (If
+// the host hangs up instead, the Watch's control client ends with this
+// process.)
+func runSidebar(socket string) error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
-	normal := &tmux.Client{}
+	normal := &tmux.Client{Socket: socket}
 	key := normal.Key()
 	h, err := host.Sidebar(key, normal.Width())
 	if err != nil {

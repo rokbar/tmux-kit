@@ -1,7 +1,8 @@
 // Package tmux is wtui's client for the normal tmux server, the one the
 // user's sessions are on: the only code that knows tmux's command line and
 // control mode for it. Each command runs with TMUX unset, so it reaches the
-// normal server even from a host's pane, where TMUX names the host.
+// normal server even from a host's pane, where TMUX names the host; pinned,
+// it reaches it by its socket.
 package tmux
 
 import (
@@ -31,9 +32,29 @@ const DefaultWidth = 30
 
 // Client is wtui's client for the normal server.
 type Client struct {
+	// Socket is the normal server's socket, which every command reaches it
+	// by (tmux -S), once pinned (see Pin); while it's "", tmux looks for the
+	// server as it would.
+	Socket string
 	// Nested is the tty of the nested client, the one a host shows on its
 	// right side; empty outside a host.
 	Nested string
+}
+
+// Pin has c reach the normal server it reaches now by that server's socket
+// from now on, wherever TMUX_TMPDIR points: tmux looks for its server there,
+// and in /tmp while that folder isn't there. Once the socket has gone, c
+// finds no server, as with none running. It fails with no server running.
+func (c *Client) Pin() error {
+	socket, err := c.output("display-message", "-p", "#{socket_path}")
+	if err != nil {
+		return err
+	}
+	if socket == "" {
+		return errors.New("tmux didn't say where its socket is")
+	}
+	c.Socket = socket
+	return nil
 }
 
 // Snapshot is the normal server's sessions and their windows, and its
@@ -291,6 +312,9 @@ func noServer(err error) bool {
 }
 
 func (c *Client) command(args ...string) *exec.Cmd {
+	if c.Socket != "" {
+		args = append([]string{"-S", c.Socket}, args...)
+	}
 	cmd := exec.Command("tmux", args...)
 	cmd.Env = WithoutTmux(os.Environ())
 	return cmd

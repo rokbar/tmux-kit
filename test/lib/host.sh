@@ -57,7 +57,8 @@
 #                                <dir> (default $tmp/<name>, made if missing)
 #
 # On exit it kills every server it started: the terminal server, every host
-# left over, and the normal server (test/lib/sandbox.sh).
+# left over, and, once every wtui left has gone too (stop_wtui), the normal
+# server (test/lib/sandbox.sh).
 
 # shellcheck source=test/lib/wtui-build.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wtui-build.sh"
@@ -69,13 +70,14 @@ export TMPDIR="$tmp"
 term() { tmux -L wtui-term -f /dev/null "$@"; }
 
 # Every host server is in a folder $tmp/wtui-*, its socket named "socket".
+# Then every wtui left goes (stop_wtui), and then the normal server and $tmp.
 kill_servers() {
   local s
   term kill-server 2>/dev/null || true
   for s in "$tmp"/wtui-*/socket; do
     if [ -S "$s" ]; then tmux -S "$s" kill-server 2>/dev/null || true; fi
   done
-  cleanup
+  wtui_cleanup
 }
 trap kill_servers EXIT
 

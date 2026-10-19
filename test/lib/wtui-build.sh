@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Sourced by the tests that build wtui (after set -euo pipefail), through
 # test/lib/wtui.sh or test/lib/host.sh, in place of test/lib/sandbox.sh, which
-# it sources. Defines build_wtui.
+# it sources. Defines build_wtui and stop_wtui; on exit, stops wtui before the
+# sandbox's cleanup.
 
 # build_wtui keeps Go's caches inside the sandbox, so it writes nothing
 # outside it. It takes wtui's modules from the user's module download cache
@@ -35,3 +36,28 @@ build_wtui() {
   ln -s "$kit/bin/wt" "$HOME/.local/bin/wt"
   ln -s "$kit/bin/t" "$HOME/.local/bin/t"
 }
+
+# stop_wtui: kills every process run from the sandbox's ~/.local/bin, where
+# build_wtui puts wtui: each wtui, and each wt or t it runs from there (a
+# script's path is its command line's second word, after bash), and waits
+# until they've gone. Anything of theirs left once the sandbox's folder has
+# gone would find, through TMUX_TMPDIR, the user's own server in /tmp. They're
+# killed outright, so none runs anything more on its way out. Zombies have
+# exited already.
+stop_wtui() {
+  local i pids
+  for ((i = 0; i < 50; i++)); do
+    pids="$(ps -A -o pid= -o stat= -o args= | awk -v bin="$tmp/home/.local/bin/" '
+      $2 !~ /^Z/ && (index($3, bin) == 1 || index($4, bin) == 1) { print $1 }')"
+    if [ -z "$pids" ]; then return 0; fi
+    # shellcheck disable=SC2086 # a word per pid
+    kill -KILL $pids 2>/dev/null || true
+    sleep 0.1
+  done
+  echo "$(basename "$0"): wtui processes left running: $pids" >&2
+}
+wtui_cleanup() {
+  stop_wtui
+  cleanup
+}
+trap wtui_cleanup EXIT

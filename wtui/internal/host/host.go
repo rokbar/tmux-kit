@@ -137,9 +137,10 @@ func (h *Host) run(args ...string) error {
 // the normal server's @wtui-width says, and on the right the session
 // Starting picks for the folder it's run in; with no session (or no server),
 // a new one for that folder, which t starts. exe is wtui, which the host's
-// panes run, with t next to it. Launch returns once the terminal has left the
-// host. It refuses inside tmux (ErrInTmux), and on a tmux older than
-// tmux.MinVersion.
+// panes run, with t next to it. Once the server is up, Launch pins normal to
+// it, and the panes reach it by its socket too. Launch returns once the
+// terminal has left the host. It refuses inside tmux (ErrInTmux), and on a
+// tmux older than tmux.MinVersion.
 func Launch(exe string, normal *tmux.Client) error {
 	if os.Getenv("TMUX") != "" {
 		return ErrInTmux
@@ -155,6 +156,11 @@ func Launch(exe string, normal *tmux.Client) error {
 	if err != nil {
 		return err
 	}
+	// The server is up now, so the host's panes are given its socket: they
+	// reach it by that alone (wtui -S), never another server.
+	if err := normal.Pin(); err != nil {
+		return fmt.Errorf("can't tell tmux's socket: %w", err)
+	}
 
 	dir, err := os.MkdirTemp("", "wtui-")
 	if err != nil {
@@ -167,8 +173,8 @@ func Launch(exe string, normal *tmux.Client) error {
 	}
 	// The right side starts first; the sidebar splits off to its left and
 	// takes focus. The commands are words, run without a shell.
-	args := []string{"-f", h.configFile(), "-T", "sync", "new-session", "-s", "wtui", "-n", "wtui", exe, "right", session}
-	args = append(args, ";", "split-window", "-hb", "-l", strconv.Itoa(normal.Width()), exe, "sidebar")
+	args := []string{"-f", h.configFile(), "-T", "sync", "new-session", "-s", "wtui", "-n", "wtui", exe, "-S", normal.Socket, "right", session}
+	args = append(args, ";", "split-window", "-hb", "-l", strconv.Itoa(normal.Width()), exe, "-S", normal.Socket, "sidebar")
 	cmd := h.tmux(args...)
 	// The terminal's client draws on stdin; only its exit message goes to
 	// stdout.
