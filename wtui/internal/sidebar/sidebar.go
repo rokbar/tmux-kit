@@ -47,6 +47,10 @@ type Normal interface {
 	// Show shows session (an id) on the right side, at window (an id)
 	// unless that's "".
 	Show(session, window string) error
+	// ShowLast shows the last session on the right side (the one shown
+	// before, else the most recent other one), and returns its id; with no
+	// other session, tmux.ErrNoOtherSession.
+	ShowLast() (string, error)
 }
 
 // Repos finds which git repo a folder is in.
@@ -81,6 +85,9 @@ type Clients struct {
 type Model struct {
 	c   Clients
 	key string // the wtui key, as tmux names it
+	// pressed is the key being pressed, as Bubble Tea names it, for an
+	// action that several keys do (1 to 9).
+	pressed string
 
 	// src is what the tree was last built from, so that part of it (e.g. a
 	// session's windows) can change without a new snapshot.
@@ -281,11 +288,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.clickOn(msg.Y), nil
 		}
 	case tea.KeyPressMsg:
-		m.seek = false // the cursor is the user's now
-		m.status.hint = ""
-		if a, ok := keyed[msg.String()]; ok {
-			return a.do(m)
-		}
+		return m.press(msg.String())
+	case Press, pressed:
+		return m.fromHost(msg)
 	case Rebuild, tmux.SessionsChanged:
 		return m.rebuild()
 	case tmux.WindowsChanged:
@@ -355,6 +360,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.err != nil {
 			m.status.action = msg.err.Error()
 		}
+	case nowhere:
+		m.status.action = errText(msg.err)
+		return m.hinted(msg.hint)
 	}
 	return m, nil
 }

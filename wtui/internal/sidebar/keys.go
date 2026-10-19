@@ -30,6 +30,10 @@ var actions = []action{
 	{[]string{"l", "right"}, "unfold", Model.unfold},
 	{[]string{"h", "left"}, "fold, or go to the parent", Model.fold},
 	{[]string{"space"}, "fold or unfold", Model.toggle},
+	{[]string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, "show the session with that number on the right", Model.number},
+	{[]string{"tab"}, "show the last session on the right", Model.last},
+	{[]string{"]"}, "show the next session in the active session's project", Model.next},
+	{[]string{"["}, "show the previous session in the active session's project", Model.previous},
 	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
 	{[]string{"e"}, "the editor on the worktree or folder", on(folderOf, Model.edit)},
 	{[]string{"o"}, "the dev URL in the browser", on(devURLOf, Model.browse)},
@@ -50,6 +54,19 @@ var keyed = func() map[string]action {
 	}
 	return byKey
 }()
+
+// press is the sidebar once key (as Bubble Tea names it) is pressed, and
+// what the key does. Any key clears the last key's hint.
+func (m Model) press(key string) (Model, tea.Cmd) {
+	m.seek = false // the cursor is the user's now
+	m.status.hint = ""
+	a, ok := keyed[key]
+	if !ok {
+		return m, nil
+	}
+	m.pressed = key
+	return a.do(m)
+}
 
 // A hint says why a key doesn't apply to the cursor's row, e.g. "notes has
 // no dev URL". The status line shows it until the next key, and the key does

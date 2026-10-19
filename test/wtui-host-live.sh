@@ -54,10 +54,10 @@ $(sidebar_text t1)"
 launch t1
 wait_until "the sidebar to show the tree" sidebar_shows t1 ' wtui
   ▾ work
-    ▸ alpha
-    ▾ beta
+1   ▸ alpha
+2   ▾ beta
         0 shell
-    ▸ gamma'
+3   ▸ gamma'
 
 # The control client is on beta, the active session, with the right flags.
 wait_until "the control client to attach to beta" eval '[ "$(ctl_on)" = beta ]'
@@ -80,31 +80,31 @@ type_in t1 "$key"
 wait_until "prefix s to show gamma on the right" eval '[ "$(showing t1)" = gamma ]'
 tree=' wtui
   ▾ work
-    ▸ alpha
-    ▸ beta
-    ▾ gamma
+1   ▸ alpha
+2   ▸ beta
+3   ▾ gamma
         0 shell'
 soon "the tree to follow the right side to gamma" sidebar_shows t1 "$tree"
-soon "gamma to be highlighted" highlighted '    ▾ gamma'
-highlighted '    ▸ beta' && fail "beta is still highlighted: $(row_style t1 '    ▸ beta')"
+soon "gamma to be highlighted" highlighted '3   ▾ gamma'
+highlighted '2   ▸ beta' && fail "beta is still highlighted: $(row_style t1 '2   ▸ beta')"
 wait_until "the control client to follow the right side to gamma" eval '[ "$(ctl_on)" = gamma ]'
 type_in t1 'C-\'
 wait_until "the wtui key to focus the sidebar" focus_on t1 sidebar
-wait_until "the cursor to be on gamma" eval '[ "$(cursor_row t1)" = "    ▾ gamma" ]'
+wait_until "the cursor to be on gamma" eval '[ "$(cursor_row t1)" = "3   ▾ gamma" ]'
 
 # Sessions and windows created, renamed and killed outside show.
 new_session kappa "$tmp/work"
 soon "a session made outside to show" sidebar_shows t1 "$tree
-    ▸ kappa"
+4   ▸ kappa"
 tmux new-window -d -t =gamma: -n logs
 soon "a window made outside to show" sidebar_shows t1 "$tree
         1 logs
-    ▸ kappa"
+4   ▸ kappa"
 tmux rename-window -t =gamma:1 server
 tmux rename-session -t =kappa lambda
 soon "a window and a session renamed outside to show" sidebar_shows t1 "$tree
         1 server
-    ▸ lambda"
+4   ▸ lambda"
 tmux kill-window -t =gamma:1
 tmux kill-session -t =lambda
 soon "a window and a session killed outside to go" sidebar_shows t1 "$tree"

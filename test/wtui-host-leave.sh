@@ -46,7 +46,7 @@ wait_until "t2's host to end and clean up once its terminal closed" host_gone t2
 # the wtui key is the normal server's @wtui-key option, read at launch
 tmux set-option -g @wtui-key 'C-]'
 launch t3
-root="$(host t3 list-keys -T root | awk '{ print $4 }' | sort | tr '\n' ' ')"
+root="$(host t3 list-keys -T root | awk '$NF != "send-keys" { print $4 }' | sort | tr '\n' ' ')"
 [ "$root" = 'C-] MouseDown1Pane MouseDrag1Border ' ] || fail "with @wtui-key C-], the host's root table binds: $root"
 type_in t3 'C-]'
 wait_until "C-] to focus the right side" focus_on t3 right

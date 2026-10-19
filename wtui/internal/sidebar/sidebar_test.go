@@ -31,8 +31,11 @@ type fakeNormal struct {
 	active    string
 	activeErr error
 	showErr   error
+	// last is the session ShowLast shows (an id), unless lastErr
+	last      string
+	lastErr   error
 	snapshots int      // how many times Snapshot ran
-	shown     []string // "session" or "session:window", by id
+	shown     []string // "session" or "session:window", by id, or "last"
 }
 
 func (n *fakeNormal) Snapshot() (tmux.Snapshot, error) {
@@ -41,6 +44,13 @@ func (n *fakeNormal) Snapshot() (tmux.Snapshot, error) {
 }
 
 func (n *fakeNormal) ActiveSession() (string, error) { return n.active, n.activeErr }
+
+// ShowLast records that it showed the last session, and what tmux would
+// say: last, or lastErr.
+func (n *fakeNormal) ShowLast() (string, error) {
+	n.shown = append(n.shown, "last")
+	return n.last, n.lastErr
+}
 
 // Show records what it showed and, as tmux does, makes the window it shows
 // its session's current window.
@@ -223,15 +233,15 @@ func TestTheTreeIsProjectsSessionsAndWindows(t *testing.T) {
 	m := started(t, fixture())
 	want := ` wtui
   ▾ api
-    ▸ api
-    ▸ Bugfix
-    ▾ fix-login
+1   ▸ api
+2   ▸ Bugfix
+3   ▾ fix-login
         0 shell
         1 dev
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed
-    ▸ zed`
+5   ▸ zed`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -284,7 +294,7 @@ func TestBuildingRunsInTheBackground(t *testing.T) {
 	if after != nil {
 		t.Error("two builds follow the one that ran, want one")
 	}
-	if got := plain(m); got != " wtui\n  ▾ api\n    ▸ api" {
+	if got := plain(m); got != " wtui\n  ▾ api\n1   ▸ api" {
 		t.Errorf("after the following build, the view is:\n%s", got)
 	}
 }
@@ -299,11 +309,11 @@ func TestAFailedGitLookupShowsInTheStatusLine(t *testing.T) {
 	m := started(t, f)
 	want := ` wtui
   ▾ api--fix-login
-    ▾ fix-login
+1   ▾ fix-login
         0 shell
         1 dev
   ▾ notes
-    ▸ notes
+2   ▸ notes
 git in /p/api--fix-login: fatal: dubious ownership`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
@@ -319,13 +329,13 @@ func TestAFailedSnapshotKeepsTheTree(t *testing.T) {
 	f.normal.snapErr = errors.New("no server running on /tmp/tmux-501/default")
 	m, cmd := update(t, m, Rebuild{})
 	m = feed(t, m, cmd)
-	want := " wtui\n  ▾ notes\n    ▸ notes\nno server running on /tmp/tmux-501/default"
+	want := " wtui\n  ▾ notes\n1   ▸ notes\nno server running on /tmp/tmux-501/default"
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
 	f.normal.snapErr = nil
 	m, cmd = update(t, m, Rebuild{})
-	if got := plain(feed(t, m, cmd)); got != " wtui\n  ▾ notes\n    ▸ notes" {
+	if got := plain(feed(t, m, cmd)); got != " wtui\n  ▾ notes\n1   ▸ notes" {
 		t.Errorf("after a build that works, the view is:\n%s", got)
 	}
 }
@@ -348,7 +358,7 @@ func TestAFailedReadOfTheActiveSessionShowsOnce(t *testing.T) {
 // puts the cursor on the active session.
 func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 	m := started(t, fixture())
-	if got := cursor(t, m); got != "    ▾ fix-login" || !hasParam(sgr(header(m)), "7") {
+	if got := cursor(t, m); got != "3   ▾ fix-login" || !hasParam(sgr(header(m)), "7") {
 		t.Errorf("at launch, the header is %q and the cursor on %q, want focus, on the active session, fix-login", header(m), got)
 	}
 	m, _ = update(t, m, tea.BlurMsg{})
@@ -359,7 +369,7 @@ func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 		t.Errorf("without focus, the header is %q, want it dim", header(m))
 	}
 	m, _ = update(t, m, tea.FocusMsg{})
-	if got := cursor(t, m); got != "    ▾ fix-login" {
+	if got := cursor(t, m); got != "3   ▾ fix-login" {
 		t.Errorf("with focus, the cursor is on %q, want the active session, fix-login", got)
 	}
 	if params := sgr(header(m)); !hasParam(params, "7") {
@@ -410,7 +420,7 @@ func TestCursorMovesUpAndDown(t *testing.T) {
 		{press("j"), "  ▾ notes"},
 		{press("k"), "        1 dev"},
 		{up, "        0 shell"},
-		{up, "    ▾ fix-login"},
+		{up, "3   ▾ fix-login"},
 	} {
 		m = keys(t, m, c.key)
 		if got := cursor(t, m); got != c.want {
@@ -424,7 +434,7 @@ func TestCursorMovesUpAndDown(t *testing.T) {
 	for range 20 {
 		m = keys(t, m, press("j"))
 	}
-	if got := cursor(t, m); got != "    ▸ zed" {
+	if got := cursor(t, m); got != "5   ▸ zed" {
 		t.Errorf("past the last row, the cursor is on %q", got)
 	}
 }
@@ -439,18 +449,18 @@ func TestFoldKeys(t *testing.T) {
 		cursor     string
 		rows, want string // the rows from the one starting with rows
 	}{
-		{press("h"), "    ▸ fix-login", "    ▸ fix-login", "    ▸ fix-login\n  ▾ notes"},
+		{press("h"), "3   ▸ fix-login", "3   ▸ fix-login", "3   ▸ fix-login\n  ▾ notes"},
 		{left, "  ▾ api", "", ""},
 		{press("h"), "  ▸ api", "  ▸ api", "  ▸ api\n  ▾ notes"},
-		{press("l"), "  ▾ api", "  ▾ api", "  ▾ api\n    ▸ api\n    ▸ Bugfix"},
-		{right, "    ▸ api", "", ""},
-		{press("l"), "    ▾ api", "    ▾ api", "    ▾ api\n        0 shell\n    ▸ Bugfix"},
+		{press("l"), "  ▾ api", "  ▾ api", "  ▾ api\n1   ▸ api\n2   ▸ Bugfix"},
+		{right, "1   ▸ api", "", ""},
+		{press("l"), "1   ▾ api", "1   ▾ api", "1   ▾ api\n        0 shell\n2   ▸ Bugfix"},
 		{press("l"), "        0 shell", "", ""},
 		{press("l"), "        0 shell", "", ""},
-		{space, "        0 shell", "    ▾ api", "    ▾ api\n        0 shell\n    ▸ Bugfix"},
-		{press("h"), "    ▾ api", "", ""},
-		{space, "    ▸ api", "    ▸ api", "    ▸ api\n    ▸ Bugfix"},
-		{space, "    ▾ api", "    ▾ api", "    ▾ api\n        0 shell\n    ▸ Bugfix"},
+		{space, "        0 shell", "1   ▾ api", "1   ▾ api\n        0 shell\n2   ▸ Bugfix"},
+		{press("h"), "1   ▾ api", "", ""},
+		{space, "1   ▸ api", "1   ▸ api", "1   ▸ api\n2   ▸ Bugfix"},
+		{space, "1   ▾ api", "1   ▾ api", "1   ▾ api\n        0 shell\n2   ▸ Bugfix"},
 	} {
 		m = keys(t, m, c.key)
 		if got := cursor(t, m); got != c.cursor {
@@ -479,7 +489,7 @@ func TestEnterOnAProjectFoldsIt(t *testing.T) {
 		t.Errorf("after enter on notes, the view is:\n%s", plain(m))
 	}
 	m, _ = update(t, m, enter)
-	if !strings.Contains(plain(m), "  ▾ notes\n    ▸ notes\n  ▾ Zed") {
+	if !strings.Contains(plain(m), "  ▾ notes\n4   ▸ notes\n  ▾ Zed") {
 		t.Errorf("after enter on notes again, the view is:\n%s", plain(m))
 	}
 	if len(f.normal.shown) > 0 {
@@ -560,17 +570,17 @@ func TestTheActiveSessionAndItsProjectAreHighlighted(t *testing.T) {
 	m, _ := update(t, started(t, fixture()), tea.BlurMsg{}) // no cursor
 
 	want := map[string]string{
-		"  ▾ api": "36", "    ▸ api": "", "    ▸ Bugfix": "",
-		"    ▾ fix-login": "1;36", "        0 shell": "", "        1 dev": "1",
-		"  ▾ notes": "", "    ▸ notes": "", "  ▾ Zed": "", "    ▸ zed": "",
+		"  ▾ api": "36", "1   ▸ api": "", "2   ▸ Bugfix": "",
+		"3   ▾ fix-login": "1;36", "        0 shell": "", "        1 dev": "1",
+		"  ▾ notes": "", "4   ▸ notes": "", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("the rows' styles are %q, want %q", got, want)
 	}
 	m, _ = update(t, m, Active{Session: "$3"})
 	want = map[string]string{
-		"  ▾ api": "", "    ▸ api": "", "    ▸ Bugfix": "", "    ▸ fix-login": "",
-		"  ▾ notes": "36", "    ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "    ▸ zed": "",
+		"  ▾ api": "", "1   ▸ api": "", "2   ▸ Bugfix": "", "3   ▸ fix-login": "",
+		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("with notes active, the rows' styles are %q, want %q", got, want)
@@ -589,14 +599,14 @@ func TestFoldsFollowTheActiveSessionUnlessMadeByHand(t *testing.T) {
 	m, _ = update(t, m, Active{Session: "$1"})
 	want := ` wtui
   ▾ api
-    ▾ api
+1   ▾ api
         0 shell
-    ▾ Bugfix
+2   ▾ Bugfix
         0 shell
-    ▸ fix-login
+3   ▸ fix-login
   ▸ notes
   ▾ Zed
-    ▸ zed`
+5   ▸ zed`
 	if got := plain(m); got != want {
 		t.Errorf("with api active, the view is:\n%s\nwant:\n%s", got, want)
 	}
@@ -605,15 +615,15 @@ func TestFoldsFollowTheActiveSessionUnlessMadeByHand(t *testing.T) {
 	m, _ = update(t, m, Active{Session: "$2"})
 	want = ` wtui
   ▾ api
-    ▸ api
-    ▾ Bugfix
+1   ▸ api
+2   ▾ Bugfix
         0 shell
-    ▾ fix-login
+3   ▾ fix-login
         0 shell
         1 dev
   ▸ notes
   ▾ Zed
-    ▸ zed`
+5   ▸ zed`
 	if got := plain(m); got != want {
 		t.Errorf("after a rebuild, with fix-login active again, the view is:\n%s\nwant:\n%s", got, want)
 	}
@@ -625,7 +635,7 @@ func TestTheActiveSessionFoldedByHandStaysFolded(t *testing.T) {
 	m := keys(t, focused(t, fixture()), press("h"))
 	m, _ = update(t, m, Active{Session: "$1"})
 	m, _ = update(t, m, Active{Session: "$2"})
-	if got := plain(m); !strings.Contains(got, "    ▸ fix-login\n  ▾ notes") {
+	if got := plain(m); !strings.Contains(got, "3   ▸ fix-login\n  ▾ notes") {
 		t.Errorf("view:\n%s\nwant fix-login folded", got)
 	}
 }
@@ -657,7 +667,7 @@ func TestTheCursorKeepsItsRowAcrossARebuild(t *testing.T) {
 	}
 	m = keys(t, m, press("k"), press("k"))
 	m = rebuilt(t, m, f)
-	if got := cursor(t, m); got != "    ▾ a-renamed" {
+	if got := cursor(t, m); got != "2   ▾ a-renamed" {
 		t.Errorf("after a rebuild, the cursor is on %q, want a-renamed, the session it was on", got)
 	}
 }
@@ -677,12 +687,12 @@ func TestTheCursorMovesToTheNearestRowWhenItsRowIsGone(t *testing.T) {
 	m = keys(t, m, press("k"), press("k")) // Bugfix
 	f.normal.snap.Sessions = without(f.normal.snap.Sessions, "$5")
 	m = rebuilt(t, m, f)
-	if got := cursor(t, m); got != "    ▾ fix-login" {
+	if got := cursor(t, m); got != "2   ▾ fix-login" {
 		t.Errorf("with Bugfix gone, the cursor is on %q, want the session after it, fix-login", got)
 	}
 	f.normal.snap.Sessions = without(f.normal.snap.Sessions, "$2")
 	m = rebuilt(t, m, f)
-	if got := cursor(t, m); got != "    ▸ api" {
+	if got := cursor(t, m); got != "1   ▸ api" {
 		t.Errorf("with fix-login, the last in api, gone, the cursor is on %q, want the one before it, api", got)
 	}
 	f.normal.snap.Sessions = without(f.normal.snap.Sessions, "$1")
@@ -703,7 +713,7 @@ func TestTheCursorMovesToTheNearestRowWhenItsRowIsGone(t *testing.T) {
 func TestTheCursorStaysInSightWhenItsRowFoldsAway(t *testing.T) {
 	m := keys(t, focused(t, fixture()), press("j")) // fix-login's shell
 	m, _ = update(t, m, Active{Session: "$1"})
-	if got := cursor(t, m); got != "    ▸ fix-login" {
+	if got := cursor(t, m); got != "3   ▸ fix-login" {
 		t.Errorf("with fix-login folded, the cursor is on %q, want fix-login", got)
 	}
 }
@@ -729,7 +739,7 @@ func TestTheCursorLandsOnTheActiveSessionAtLaunch(t *testing.T) {
 		for _, msg := range msgs {
 			m, _ = update(t, m, msg)
 		}
-		if got := cursor(t, m); got != "    ▾ fix-login" {
+		if got := cursor(t, m); got != "3   ▾ fix-login" {
 			t.Errorf("with the active session known first: %v, the cursor is on %q, want fix-login", activeFirst, got)
 		}
 	}
@@ -741,7 +751,7 @@ func TestGettingFocusAgainPutsTheCursorBack(t *testing.T) {
 	m := keys(t, focused(t, fixture()), press("k"), press("k"), press("k"), press("h")) // api folded
 	m, _ = update(t, m, tea.BlurMsg{})
 	m, _ = update(t, m, tea.FocusMsg{})
-	if got := cursor(t, m); got != "    ▾ fix-login" {
+	if got := cursor(t, m); got != "3   ▾ fix-login" {
 		t.Errorf("after focus came back, the cursor is on %q, want fix-login", got)
 	}
 }
@@ -760,7 +770,7 @@ func TestTheCursorWaitsForANewActiveSessionUnlessMoved(t *testing.T) {
 		}
 		f.normal.snap.Sessions = append(f.normal.snap.Sessions, session(7, "new", "/home/u/notes", "shell"))
 		m = rebuilt(t, m, f)
-		want := "    ▾ new"
+		want := "4   ▾ new"
 		if moved {
 			want = "  ▾ notes" // from fix-login, a row down
 		}
@@ -813,7 +823,7 @@ func TestLinesFitTheSidebar(t *testing.T) {
 			t.Errorf("line %q is %d columns wide, wider than the sidebar's 20", line, w)
 		}
 	}
-	if !strings.Contains(plain(m), "\n    ▸ a-session-w…\n") {
+	if !strings.Contains(plain(m), "\n4   ▸ a-session-w…\n") {
 		t.Errorf("the session's name isn't cut short:\n%s", plain(m))
 	}
 }
@@ -824,24 +834,24 @@ func TestTheTreeScrollsInAShortPane(t *testing.T) {
 	f := fixture()
 	m := focused(t, f)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 6})
-	want := " wtui\n  ▾ api\n    ▸ api\n    ▸ Bugfix\n    ▾ fix-login\n        0 shell"
+	want := " wtui\n  ▾ api\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell"
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
 	m = keys(t, m, press("j"), press("j"), press("j")) // project notes
-	want = " wtui\n    ▸ Bugfix\n    ▾ fix-login\n        0 shell\n        1 dev\n  ▾ notes"
+	want = " wtui\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\n        1 dev\n  ▾ notes"
 	if got := plain(m); got != want {
 		t.Errorf("with the cursor on notes, the view is:\n%s\nwant:\n%s", got, want)
 	}
 	m = keys(t, m, press("k"), press("k"), press("k"), press("k"), press("k")) // session api
 	m, _ = update(t, m, click(2))
-	if got := cursor(t, m); got != "    ▸ Bugfix" {
+	if got := cursor(t, m); got != "2   ▸ Bugfix" {
 		t.Errorf("after a click on line 2, the cursor is on %q, want Bugfix", got)
 	}
 	f.normal.showErr = errors.New("can't find session")
 	m, cmd := update(t, m, enter)
 	m, _ = update(t, m, run(t, cmd))
-	want = " wtui\n    ▸ api\n    ▸ Bugfix\n    ▾ fix-login\n        0 shell\ncan't find session"
+	want = " wtui\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\ncan't find session"
 	if got := plain(m); got != want {
 		t.Errorf("with a status line, the view is:\n%s\nwant:\n%s", got, want)
 	}

@@ -46,19 +46,19 @@ func TestEachRowShowsTheMostUrgentAgentStateBeneathIt(t *testing.T) {
 	want := ` wtui
   ▾ api !
     ▾ main *
-      ▸ api ✓
-      ▸ Bugfix *
-    ▾ login !
+1     ▸ api ✓
+2     ▸ Bugfix *
+3   ▾ login !
         0 shell !
         1 dev *
       docs
       api--rebase ±
       api--gone ✗
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed ✓
-    ▸ zed ✓
-    ▸ agent ✓`
+5   ▸ zed ✓
+6   ▸ agent ✓`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -81,19 +81,19 @@ func TestAgentStatesFollowTheirEvents(t *testing.T) {
 	want := ` wtui
   ▾ api *
     ▾ main *
-      ▸ api *
-      ▸ Bugfix
-    ▾ login
+1     ▸ api *
+2     ▸ Bugfix
+3   ▾ login
         0 shell
         1 dev
       docs
       api--rebase ±
       api--gone ✗
   ▾ notes !
-    ▸ notes !
+4   ▸ notes !
   ▾ Zed
-    ▸ zed
-    ▸ agent`
+5   ▸ zed
+6   ▸ agent`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -121,12 +121,12 @@ func TestAgentStatesNewerThanABuildStay(t *testing.T) {
 		}
 		return rows
 	}
-	if got, want := marked(m), []string{"  ▾ notes !", "    ▸ notes !"}; !slices.Equal(got, want) {
+	if got, want := marked(m), []string{"  ▾ notes !", "4   ▸ notes !"}; !slices.Equal(got, want) {
 		t.Errorf("after the build, the rows with agent states are %q, want %q", got, want)
 	}
 	f.normal.snap.Agents = []tmux.Agent{agent("$4", "@40", "%6", tmux.Done)}
 	m = rebuilt(t, m, f)
-	if got, want := marked(m), []string{"  ▾ Zed ✓", "    ▸ zed ✓"}; !slices.Equal(got, want) {
+	if got, want := marked(m), []string{"  ▾ Zed ✓", "5   ▸ zed ✓"}; !slices.Equal(got, want) {
 		t.Errorf("after the next build, the rows with agent states are %q, want %q", got, want)
 	}
 }
@@ -182,8 +182,8 @@ func TestTheAgentStateIsAColumnAtTheRightEdge(t *testing.T) {
 	}{
 		{"  ▾ api", "!", "31", ""},
 		{"    ▾ main", "*", "33", ""},
-		{"      ▸ api", "✓", "2;32", ""},
-		{"    ▾ login", "!", "7;31", "7"},
+		{"1     ▸ api", "✓", "2;32", ""},
+		{"3   ▾ login", "!", "7;31", "7"},
 		{"  ▾ notes", " ", "", ""},
 	} {
 		cells := rowCells(t, m, c.row)
@@ -258,14 +258,14 @@ func TestShowingAWindowClearsItsDone(t *testing.T) {
 		agent("$1", "@10", "%3", tmux.Done), // api's shell
 	}
 	m := started(t, f)
-	rows := []string{"      ▸ api", "    ▾ login", "        0 shell", "        1 dev"}
-	if got, want := rowsOf(plain(m), rows...), []string{"      ▸ api ✓", "    ▾ login ✓", "        0 shell ✓", "        1 dev"}; !slices.Equal(got, want) {
+	rows := []string{"1     ▸ api", "3   ▾ login", "        0 shell", "        1 dev"}
+	if got, want := rowsOf(plain(m), rows...), []string{"1     ▸ api ✓", "3   ▾ login ✓", "        0 shell ✓", "        1 dev"}; !slices.Equal(got, want) {
 		t.Fatalf("at launch, the rows are %q, want %q", got, want)
 	}
 
 	f.normal.snap.Agents = append(f.normal.snap.Agents, agent("$2", "@21", "%2", tmux.Done))
 	m, cmd := update(t, m, tmux.AgentsChanged{Agents: f.normal.snap.Agents})
-	if got, want := rowsOf(plain(m), rows...), []string{"      ▸ api ✓", "    ▾ login ✓", "        0 shell ✓", "        1 dev"}; !slices.Equal(got, want) {
+	if got, want := rowsOf(plain(m), rows...), []string{"1     ▸ api ✓", "3   ▾ login ✓", "        0 shell ✓", "        1 dev"}; !slices.Equal(got, want) {
 		t.Errorf("with done arriving in dev, shown, the rows are %q, want %q", got, want)
 	}
 	runAll(cmd)
@@ -275,12 +275,12 @@ func TestShowingAWindowClearsItsDone(t *testing.T) {
 
 	m, cmd = update(t, m, loginAtShell) // prefix p on the right
 	runAll(cmd)
-	if got, want := rowsOf(plain(m), rows...), []string{"      ▸ api ✓", "    ▾ login", "        0 shell", "        1 dev"}; !slices.Equal(got, want) {
+	if got, want := rowsOf(plain(m), rows...), []string{"1     ▸ api ✓", "3   ▾ login", "        0 shell", "        1 dev"}; !slices.Equal(got, want) {
 		t.Errorf("with login's shell shown, the rows are %q, want %q", got, want)
 	}
 	m, cmd = update(t, m, tmux.ActiveSessionChanged{Session: "$1"})
 	runAll(cmd)
-	if got, want := rowsOf(plain(m), "      ▾ api", "    ▸ login"), []string{"      ▾ api", "    ▸ login"}; !slices.Equal(got, want) {
+	if got, want := rowsOf(plain(m), "1     ▾ api", "3   ▸ login"), []string{"1     ▾ api", "3   ▸ login"}; !slices.Equal(got, want) {
 		t.Errorf("with api shown, the rows are %q, want %q", got, want)
 	}
 	if want := []string{"@21", "@20", "@10"}; !slices.Equal(f.normal.cleared, want) {

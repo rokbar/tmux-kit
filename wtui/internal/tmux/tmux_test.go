@@ -1,6 +1,7 @@
 package tmux_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"slices"
@@ -306,5 +307,55 @@ func TestShow(t *testing.T) {
 	}
 	if err := (&tmux.Client{}).Show(beta, ""); err == nil {
 		t.Error("with no nested client, Show succeeds")
+	}
+}
+
+// nestedFromOutside is nestedClient with the terminal on a tmux server of its
+// own, as a host's is, so that the normal server has only the sessions the
+// test makes.
+func nestedFromOutside(t *testing.T, session string) *tmux.Client {
+	t.Helper()
+	t.Cleanup(func() { exec.Command("tmux", "-L", "term", "kill-server").Run() })
+	tmuxRun(t, "-L", "term", "new-session", "-d", "-s", "term", "-x", "100", "-y", "30",
+		"env", "-u", "TMUX", "tmux", "attach", "-f", "no-detach-on-destroy", "-t", "="+session)
+	tty := tmuxRun(t, "-L", "term", "display-message", "-p", "-t", "=term:", "#{pane_tty}")
+	waitFor(t, "the client to attach", func() bool { return showing(t, tty) != "" })
+	return &tmux.Client{Nested: tty}
+}
+
+// The last session is the one the nested client showed before this one, as
+// tmux keeps it, so showing it twice comes back. Without one (it has shown
+// no other yet, or that one is gone), it's the session with the most recent
+// activity, other than the one shown. With no other session, there's none.
+func TestShowLast(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	// gamma, then beta, have the most recent activity (it counts seconds),
+	// so the last session shown, alpha, isn't the most recent but one
+	tmuxRun(t, "new-session", "-d", "-s", "alpha")
+	nested := nestedFromOutside(t, "alpha")
+	time.Sleep(time.Second)
+	tmuxRun(t, "new-session", "-d", "-s", "beta")
+	time.Sleep(time.Second)
+	tmuxRun(t, "new-session", "-d", "-s", "gamma")
+	last := func(want, why string) {
+		t.Helper()
+		id := tmuxRun(t, "display-message", "-p", "-t", "="+want+":", "#{session_id}")
+		if got, err := nested.ShowLast(); err != nil || got != id || showing(t, nested.Nested) != want+":0" {
+			t.Errorf("%s, ShowLast() = %q, %v, and the client shows %s; want %s (%s)", why, got, err, showing(t, nested.Nested), want, id)
+		}
+	}
+	last("gamma", "with no session shown before")
+	last("alpha", "after gamma")
+	last("gamma", "after alpha")
+	time.Sleep(time.Second)
+	tmuxRun(t, "new-session", "-d", "-s", "delta")
+	tmuxRun(t, "kill-session", "-t", "=alpha")
+	last("delta", "with alpha, the last session, gone")
+
+	tmuxRun(t, "kill-session", "-t", "=gamma")
+	tmuxRun(t, "kill-session", "-t", "=beta")
+	if got, err := nested.ShowLast(); !errors.Is(err, tmux.ErrNoOtherSession) || showing(t, nested.Nested) != "delta:0" {
+		t.Errorf("with delta alone, ShowLast() = %q, %v, and the client shows %s; want ErrNoOtherSession", got, err, showing(t, nested.Nested))
 	}
 }

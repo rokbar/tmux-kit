@@ -27,12 +27,12 @@ tmux rename-window -t =api: shell
 launch t1 "$tmp"
 tree=' wtui
   ▾ api
-    ▾ api
+1   ▾ api
         0 shell
       docs
     ▾ fix
-      ▸ fix
-      ▸ fix-web
+2     ▸ fix
+3     ▸ fix-web
       api--gone ✗'
 wait_until "the sidebar to show api's worktrees" sidebar_shows t1 "$tree"
 
@@ -56,7 +56,7 @@ dimmed '      docs' || fail "docs, without a session, isn't dimmed"
 dimmed '      api--gone ✗' || fail "api--gone, missing, isn't dimmed"
 if dimmed '    ▾ fix'; then fail "fix, with sessions, is dimmed"; fi
 cursor_on() { [ "$(cursor_row t1)" = "$1" ]; }
-wait_until "the cursor to show on api" cursor_on '    ▾ api'
+wait_until "the cursor to show on api" cursor_on '1   ▾ api'
 
 # enter on docs: wt opens its session, named after its branch, and the right
 # side shows it, with focus there.
@@ -71,14 +71,14 @@ wait_until "enter to focus the right side" focus_on t1 right
 # tmux's to choose, so windows are left out.
 tree=' wtui
   ▾ api
-    ▸ api
-    ▾ docs
+1   ▸ api
+2   ▾ docs
     ▾ fix
-      ▸ fix
-      ▸ fix-web
+3     ▸ fix
+4     ▸ fix-web
       api--gone ✗'
 without_windows() { [ "$(sidebar_text t1 | awk '!/^ +[0-9]+ /')" = "$1" ]; }
 wait_until "the sidebar to show docs's session" without_windows "$tree"
-if dimmed '    ▾ docs'; then fail "docs, with a session now, is dimmed"; fi
+if dimmed '2   ▾ docs'; then fail "docs, with a session now, is dimmed"; fi
 
 echo "ok: wtui-host-worktrees"

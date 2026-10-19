@@ -100,6 +100,6 @@ wait_until "t2's sidebar to draw its tree" eval 'sidebar_text t2 | grep alpha >/
 [ -z "$(cursor_row t2)" ] || fail "launched hidden then shown, the sidebar shows its cursor on '$(cursor_row t2)' without focus"
 type_in t2 'C-\'
 wait_until "the wtui key to focus t2's sidebar" focus_on t2 sidebar
-wait_until "t2's sidebar to show its cursor on alpha" eval '[ "$(cursor_row t2)" = "    ▾ alpha" ]'
+wait_until "t2's sidebar to show its cursor on alpha" eval '[ "$(cursor_row t2)" = "1   ▾ alpha" ]'
 
 echo "ok: wtui-host-hide"

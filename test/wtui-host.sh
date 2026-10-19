@@ -32,9 +32,11 @@ case "$nested" in *no-detach-on-destroy*) ;; *) fail "the right side's client is
 case "$nested" in *sync*) ;; *) fail "the right side's client lacks the sync feature: $nested" ;; esac
 
 # The host binds nothing but the wtui key (the normal server's @wtui-key,
-# unset here: C-\) and the two mouse bindings, so every other key reaches the
-# side with focus.
-root="$(host t1 list-keys -T root | awk '{ print $4 }' | sort | tr '\n' ' ')"
+# unset here: C-\), the two mouse bindings and the sidebar's held keys, so
+# every other key reaches the side with focus. A held key, but in the
+# sidebar, passes on as it is: its binding ends with send-keys, which sends
+# the key pressed (test/wtui-host-jumps.sh types them on the right).
+root="$(host t1 list-keys -T root | awk '$NF != "send-keys" { print $4 }' | sort | tr '\n' ' ')"
 [ "$root" = 'C-\\ MouseDown1Pane MouseDrag1Border ' ] || fail "the host's root table binds: $root"
 
 # The terminal's title follows the session shown, whichever side has focus.

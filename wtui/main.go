@@ -9,6 +9,8 @@
 //
 //	wtui sidebar           the sidebar, in the host's left pane
 //	wtui right [<session>] the right side's wrapper, in its right pane
+//	wtui press <key>       has the sidebar press a held key, for the host's
+//	                       bindings
 //	wtui popup             the old popup, kept until the host replaces it
 package main
 
@@ -45,6 +47,10 @@ func main() {
 		err = runSidebar()
 	case "right":
 		err = host.Right(&tmux.Client{}, flag.Arg(1))
+	case "press":
+		// The sidebar's failures are the sidebar's to show, and the host's
+		// bindings make sure nothing shows of this.
+		err = host.Press(flag.Arg(1))
 	case "popup":
 		err = runPopup()
 	default:
@@ -73,7 +79,7 @@ func runSidebar() error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	normal := &tmux.Client{}
 	key := normal.Key()
-	h, err := host.Sidebar(key, normal.Width())
+	h, err := host.Sidebar(key, normal.Width(), sidebar.Keys())
 	if err != nil {
 		return err
 	}
@@ -103,6 +109,11 @@ func runSidebar() error {
 			p.Send(ev)
 		}
 	}()
+	go h.Serve(func(key string) {
+		done := make(chan struct{})
+		p.Send(sidebar.Press{Key: key, Done: done})
+		<-done
+	})
 	_, err = p.Run()
 	return errors.Join(err, watch.Close(), h.Close())
 }

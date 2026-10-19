@@ -240,6 +240,42 @@ func (c *Client) Show(session, window string) error {
 	return err
 }
 
+// ErrNoOtherSession is ShowLast's failure when the session the nested client
+// shows is the only one.
+var ErrNoOtherSession = errors.New("no other session")
+
+// ShowLast shows on the nested client the session it showed before the one
+// it shows, as tmux keeps it (prefix L's), and returns its id; so showing
+// the last session again comes back. If it has none, or that one is gone, it
+// shows the session with the most recent activity other than the one it
+// shows.
+func (c *Client) ShowLast() (string, error) {
+	if c.Nested == "" {
+		return "", errors.New("no nested client to show a session on")
+	}
+	if _, err := c.output("switch-client", "-c", c.Nested, "-l"); err == nil {
+		return c.ActiveSession()
+	}
+	active, err := c.ActiveSession()
+	if err != nil {
+		return "", err
+	}
+	snap, err := c.Snapshot()
+	if err != nil {
+		return "", err
+	}
+	var last *Session
+	for i, s := range snap.Sessions {
+		if s.ID != active && (last == nil || s.Activity.After(last.Activity)) {
+			last = &snap.Sessions[i]
+		}
+	}
+	if last == nil {
+		return "", ErrNoOtherSession
+	}
+	return last.ID, c.Show(last.ID, "")
+}
+
 // Attach runs the nested client on this process's terminal: a tmux client
 // attached to session (an id or =<name>, or "" to have tmux choose), and
 // returns once it exits, with what it said as it did. detached is whether

@@ -26,7 +26,7 @@ func TestASessionEventRebuildsTheTree(t *testing.T) {
 	}
 	m = feed(t, m, cmd)
 	view := plain(m)
-	if !strings.Contains(view, "  ▾ docs\n    ▸ docs\n") || strings.Contains(view, "notes") {
+	if !strings.Contains(view, "  ▾ docs\n4   ▸ docs\n") || strings.Contains(view, "notes") {
 		t.Errorf("after notes went and docs came, the view is:\n%s", view)
 	}
 }
@@ -53,16 +53,16 @@ func TestAWindowEventUpdatesOnlyThatSessionsWindows(t *testing.T) {
 	}
 	want := ` wtui
   ▾ api
-    ▸ api
-    ▸ Bugfix
-    ▾ fix-login
+1   ▸ api
+2   ▸ Bugfix
+3   ▾ fix-login
         0 shell
         1 server
         2 logs
   ▾ notes
-    ▸ notes
+4   ▸ notes
   ▾ Zed
-    ▸ zed`
+5   ▸ zed`
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
@@ -102,14 +102,14 @@ func TestTheActiveSessionFollowsTheRightSide(t *testing.T) {
 		t.Errorf("a change of active session gave %v, want nothing", cmd)
 	}
 	want := map[string]string{
-		"  ▾ api": "", "    ▸ api": "", "    ▸ Bugfix": "", "    ▸ fix-login": "",
-		"  ▾ notes": "36", "    ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "    ▸ zed": "",
+		"  ▾ api": "", "1   ▸ api": "", "2   ▸ Bugfix": "", "3   ▸ fix-login": "",
+		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("with notes active, the rows' styles are %q, want %q", got, want)
 	}
 	m, _ = update(t, m, tea.FocusMsg{})
-	if got := cursor(t, m); got != "    ▾ notes" {
+	if got := cursor(t, m); got != "4   ▾ notes" {
 		t.Errorf("on getting focus, the cursor is on %q, want notes, the active session", got)
 	}
 }
