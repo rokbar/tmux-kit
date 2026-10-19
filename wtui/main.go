@@ -66,16 +66,23 @@ func launch() error {
 
 // runSidebar runs the sidebar in its host until q, then closes the host.
 func runSidebar() error {
+	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	normal := &tmux.Client{}
 	key := normal.Key()
 	h, err := host.Sidebar(key)
 	if err != nil {
 		return err
 	}
+	// What the sidebar runs (wt, git) is for the normal server, so it mustn't
+	// see the TMUX of the host's pane: wt's tmux would be the host's. The host
+	// is reached by its socket.
+	os.Unsetenv("TMUX")
+	os.Unsetenv("TMUX_PANE")
 	if normal.Nested, err = h.RightTTY(); err != nil {
 		return errors.Join(err, h.Close())
 	}
-	_, err = tea.NewProgram(sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key)).Run()
+	c := sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe)}
+	_, err = tea.NewProgram(sidebar.New(c, key)).Run()
 	return errors.Join(err, h.Close())
 }
 

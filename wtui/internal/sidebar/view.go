@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/tree"
+	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
 // status is what the status line shows: the last failure of an action, of a
@@ -114,9 +115,12 @@ func (m Model) fit(line string) string {
 }
 
 // highlight is how node n stands out: the active session in bold cyan, and
-// the rows above it (its project) in cyan; a session's active window in
-// bold.
+// the rows above it (its worktree and project) in cyan; a session's active
+// window in bold. A worktree without a session (a missing one too) is dim.
 func (m Model) highlight(n *tree.Node) []string {
+	if n.ID.Kind == tree.Worktree && len(n.Children) == 0 {
+		return []string{dim}
+	}
 	switch n.ID.Kind {
 	case tree.Window:
 		if n.Active {
@@ -141,7 +145,8 @@ func (m Model) highlight(n *tree.Node) []string {
 func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
 // row is how row r shows: after a two-column margin (where session numbers
-// go), indented by its depth, a fold mark if it has children, and its name.
+// go), indented by its depth, a fold mark if it has children, its name, and
+// then its markers: ✗ for a missing worktree.
 func (m Model) row(r tree.Row) string {
 	mark := " "
 	if len(r.Children) > 0 {
@@ -154,5 +159,11 @@ func (m Model) row(r tree.Row) string {
 	if r.ID.Kind == tree.Window {
 		name = fmt.Sprintf("%d %s", r.Index, r.Name)
 	}
+	if missing(r.Node) {
+		name += " ✗"
+	}
 	return "  " + strings.Repeat("  ", r.Depth) + mark + " " + name
 }
+
+// missing says whether n stands for a missing worktree.
+func missing(n *tree.Node) bool { return n.Worktree != nil && n.Worktree.State == wt.Missing }
