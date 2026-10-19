@@ -1,8 +1,12 @@
 package sidebar
 
 import (
+	"fmt"
+	"slices"
+
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/tree"
 )
 
@@ -24,7 +28,7 @@ var actions = []action{
 	{[]string{"l", "right"}, "unfold", Model.unfold},
 	{[]string{"h", "left"}, "fold, or go to the parent", Model.fold},
 	{[]string{"space"}, "fold or unfold", Model.toggle},
-	{[]string{"enter"}, "show on the right; fold or unfold a project", Model.enter},
+	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
 	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
@@ -105,20 +109,52 @@ func (m Model) toggle() (Model, tea.Cmd) {
 }
 
 // enter shows a session, or a window's session at that window, on the right
-// and moves focus there; it folds or unfolds a project.
+// and moves focus there; it folds or unfolds a project, or a worktree with
+// sessions under it. A worktree without a session, it opens first. A
+// missing worktree has nothing to show.
 func (m Model) enter() (Model, tea.Cmd) {
 	n := m.tree.Node(m.cursor)
 	if n == nil {
 		return m, nil
 	}
-	switch n.ID.Kind {
-	case tree.Project:
+	switch {
+	case n.ID.Kind == tree.Project || n.ID.Kind == tree.Worktree && len(n.Children) > 0:
 		return m.toggle()
+	case missing(n):
+		return m, nil
+	case n.ID.Kind == tree.Worktree:
+		return m, m.opening(n)
 	}
 	normal, host := m.c.Normal, m.c.Host
 	session, window := n.Session, n.Window
 	return m, func() tea.Msg {
 		if err := normal.Show(session, window); err != nil {
+			return shown{err: err}
+		}
+		return shown{session: session, err: host.FocusRight()}
+	}
+}
+
+// opening has wt open the session of n, a worktree's row, then shows that
+// session (the one started in the worktree's folder) on the right and moves
+// focus there.
+func (m Model) opening(n *tree.Node) tea.Cmd {
+	w, normal, host := m.c.Wt, m.c.Normal, m.c.Host
+	project, path := n.Parent.Path, n.Path
+	return func() tea.Msg {
+		if err := w.Open(project, path); err != nil {
+			return shown{err: err}
+		}
+		snap, err := normal.Snapshot()
+		if err != nil {
+			return shown{err: err}
+		}
+		i := slices.IndexFunc(snap.Sessions, func(s tmux.Session) bool { return s.Path == path })
+		if i < 0 {
+			return shown{err: fmt.Errorf("wt opened %s, but no session started there", path)}
+		}
+		session := snap.Sessions[i].ID
+		if err := normal.Show(session, ""); err != nil {
 			return shown{err: err}
 		}
 		return shown{session: session, err: host.FocusRight()}

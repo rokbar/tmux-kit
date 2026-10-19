@@ -1,11 +1,13 @@
 // Package sidebar is the sidebar's model: the Bubble Tea program on the left
-// of a host. It shows the tree of projects, sessions and windows, keeps the
-// cursor and the folds by identity across rebuilds, and shows a session or
-// window on the right when asked to.
+// of a host. It shows the tree of projects, worktrees, sessions and windows,
+// keeps the cursor and the folds by identity across rebuilds, and shows a
+// session or window on the right when asked to, opening a worktree's session
+// through wt first if it has none.
 package sidebar
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/tree"
+	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
 // Host is what the sidebar asks of the host it runs in.
@@ -44,11 +47,23 @@ type Repos interface {
 	MainClone(dir string) (string, error)
 }
 
+// Wt is what the sidebar asks of wt.
+type Wt interface {
+	// List is the main clone, then every worktree, of the git project whose
+	// main clone is mainClone, in git's order.
+	List(mainClone string) ([]wt.Worktree, error)
+	// Open opens the session of the main clone or worktree at path, in the
+	// project whose main clone is mainClone, without showing it: one with
+	// wt's default name and usual setup, unless there's one already.
+	Open(mainClone, path string) error
+}
+
 // Clients are what the sidebar talks to.
 type Clients struct {
 	Host   Host
 	Normal Normal
 	Repos  Repos
+	Wt     Wt
 }
 
 // poll is how often the sidebar asks which session is active.
@@ -150,12 +165,13 @@ func (m Model) rebuild() (Model, tea.Cmd) {
 	if m.fresh {
 		known, m.fresh = nil, false
 	}
-	normal, repos := m.c.Normal, m.c.Repos
-	return m, func() tea.Msg { return build(normal, repos, known) }
+	normal, repos, w := m.c.Normal, m.c.Repos, m.c.Wt
+	return m, func() tea.Msg { return build(normal, repos, w, known) }
 }
 
-// build takes a snapshot and looks up the start folders not in known.
-func build(normal Normal, repos Repos, known map[string]string) built {
+// build takes a snapshot, looks up the start folders not in known, and has
+// wt list each git project's worktrees.
+func build(normal Normal, repos Repos, w Wt, known map[string]string) built {
 	snap, err := normal.Snapshot()
 	if err != nil {
 		return built{err: err} // the last tree stays
@@ -176,7 +192,43 @@ func build(normal Normal, repos Repos, known map[string]string) built {
 		}
 		clones[s.Path] = main
 	}
-	return built{&tree.Sources{Snapshot: snap, MainClones: clones}, errors.Join(errs...)}
+	lists := map[string][]wt.Worktree{}
+	for _, s := range snap.Sessions {
+		main := clones[s.Path]
+		if _, ok := lists[main]; ok || main == "" {
+			continue
+		}
+		rows, err := w.List(main)
+		if err != nil {
+			errs = append(errs, listFailure(err)) // the project shows as tmux sees it
+		}
+		lists[main] = rows
+	}
+	src := &tree.Sources{Snapshot: snap, MainClones: clones, Worktrees: lists}
+	return built{src, errors.Join(distinct(errs)...)}
+}
+
+// listFailure is what the status line says when wt can't list a project's
+// worktrees.
+func listFailure(err error) error {
+	if errors.Is(err, wt.ErrTooOld) {
+		return fmt.Errorf("wt is too old for wtui (update tmux-kit): %w", err)
+	}
+	return err
+}
+
+// distinct is errs without those that say what one before them says (e.g.
+// that there's no wt, once for each git project).
+func distinct(errs []error) []error {
+	var out []error
+	said := map[string]bool{}
+	for _, err := range errs {
+		if !said[err.Error()] {
+			said[err.Error()] = true
+			out = append(out, err)
+		}
+	}
+	return out
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -308,14 +360,14 @@ func (m Model) toActive() Model {
 }
 
 // open says whether node n shows its children: as folded or unfolded by
-// hand, else by default, projects unfolded and sessions folded, but for the
-// active session.
+// hand, else by default, projects and worktrees unfolded and sessions
+// folded, but for the active session.
 func (m Model) open(n *tree.Node) bool {
 	if o, ok := m.hand[n.ID]; ok {
 		return o
 	}
 	switch n.ID.Kind {
-	case tree.Project:
+	case tree.Project, tree.Worktree:
 		return true
 	case tree.Session:
 		return n.Session == m.active

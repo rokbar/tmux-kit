@@ -245,6 +245,26 @@ func TestListsTheSessionAndDevURLOfWorktreesWtOpened(t *testing.T) {
 	})
 }
 
+// The sidebar lists every project it shows, wherever wtui runs: run in a
+// project's main clone, the list is that project's, from a folder outside it.
+func TestListsAProjectFromOutsideIt(t *testing.T) {
+	s := sandbox.New(t)
+	api := s.Repo("api")
+	fix, _ := s.NewWorktree(api, "fix")
+	docs, _ := s.NewWorktree(s.Repo("docs"), "draft")
+	s.RunWt(docs, "-d", "main")
+	t.Chdir(s.Path("home"))
+
+	sameRows(t, list(t, api), []wt.Worktree{
+		{Path: api, Branch: "main", State: wt.Clean, MainClone: true},
+		{Path: fix, Branch: "fix", State: wt.Clean, Session: "fix"},
+	})
+	sameRows(t, list(t, s.Path("docs")), []wt.Worktree{
+		{Path: s.Path("docs"), Branch: "main", State: wt.Clean, Session: "main", MainClone: true},
+		{Path: docs, Branch: "draft", State: wt.Clean, Session: "draft"},
+	})
+}
+
 // Opening a worktree that has no session starts one there, as wt names it by
 // default (its branch, else its folder), so the next list shows it. This works
 // for the main clone and a worktree mid-rebase too, which has no branch.
