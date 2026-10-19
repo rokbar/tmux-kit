@@ -21,9 +21,6 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
 
-// SidebarWidth is the sidebar's width in columns.
-const SidebarWidth = 30
-
 // config is the host server's whole config, written for each launch. The
 // host has no prefix and binds nothing but the wtui key (bound once the panes
 // are known, see Sidebar) and two mouse bindings, so every other key and
@@ -48,6 +45,62 @@ unbind -a -T root
 bind -n MouseDown1Pane select-pane -t = \; send -M
 bind -n MouseDrag1Border resize-pane -M
 `
+
+// narrow is the terminal's width, in columns, under which the sidebar hides.
+const narrow = 100
+
+// The host holds the sidebar's width and hides it in a narrow terminal with
+// two hooks on its window, which keeps three options: @wtui-width, the
+// sidebar's width for this launch; @wtui-cols, the window's width when that
+// width was last held, 0 while the sidebar is hidden so that it's held again
+// once it shows; and @wtui-hidden, set while z hides it. Hiding the sidebar
+// is zooming the right side, and anything that focuses the sidebar unzooms
+// it. In the commands, SIDEBAR and RIGHT are the panes, and NARROW is narrow.
+//
+// Commands a hook runs fire no hooks themselves: the hold's own resize isn't
+// taken for a drag, and the window-resized hook holds the width itself once
+// it has shown the sidebar.
+const (
+	// zoom hides the sidebar.
+	zoom = `resize-pane -Z -t RIGHT
+		set -w -t SIDEBAR @wtui-cols 0`
+	// hold makes the sidebar @wtui-width wide, or as wide as fits, if it
+	// shows and the window's width has changed since it last held.
+	hold = `if -F '#{&&:#{!:#{window_zoomed_flag}},#{e|!=:#{window_width},#{@wtui-cols}}}' {
+		set -wF -t SIDEBAR @wtui-cols '#{window_width}'
+		run-shell -C 'resize-pane -t SIDEBAR -x #{@wtui-width}'
+	}`
+	// layoutChanged is the window-layout-changed hook. With the sidebar
+	// showing and the window as wide as when it last held, the layout
+	// changed by a drag on the border, which sets a new width; otherwise it
+	// holds the width.
+	layoutChanged = `if -F '#{window_zoomed_flag}' {
+		set -w -t SIDEBAR @wtui-cols 0
+	} {
+		set -wqu -t SIDEBAR @wtui-hidden
+		if -F '#{e|==:#{window_width},#{@wtui-cols}}' {
+			set -wF -t SIDEBAR @wtui-width '#{pane_width}'
+		}
+		HOLD
+	}`
+	// resized is the window-resized hook: under narrow columns the sidebar
+	// hides, and at narrow or more it shows again, unless z hid it.
+	resized = `if -F '#{e|<:#{window_width},NARROW}' {
+		if -F '#{!:#{window_zoomed_flag}}' { ZOOM }
+	} {
+		if -F '#{&&:#{window_zoomed_flag},#{!:#{@wtui-hidden}}}' { resize-pane -Z -t RIGHT }
+	}
+	HOLD`
+	// hide is z's: the sidebar hides until it gets focus.
+	hide = `ZOOM
+		set -w -t SIDEBAR @wtui-hidden 1`
+)
+
+// commands is one of the commands above for this host.
+func (h *Host) commands(c string) string {
+	c = strings.NewReplacer("HOLD", hold, "ZOOM", zoom).Replace(c)
+	return strings.NewReplacer("SIDEBAR", h.sidebar, "RIGHT", h.right, "NARROW", strconv.Itoa(narrow)).Replace(c)
+}
 
 // ErrInTmux is the launcher's refusal inside tmux.
 var ErrInTmux = errors.New("already in tmux, where prefix s and prefix W switch sessions: run wtui in a plain terminal")
@@ -80,8 +133,9 @@ func (h *Host) run(args ...string) error {
 }
 
 // Launch is the launcher, run in a plain terminal: it starts a host for this
-// launch and attaches the terminal to it, the sidebar on the left and the
-// session with the most recent activity on the right. exe is wtui, which the
+// launch and attaches the terminal to it, the sidebar on the left, as wide as
+// the normal server's @wtui-width says, and the session with the most recent
+// activity on the right. exe is wtui, which the
 // host's panes run. Launch returns once the terminal has left the host. It
 // refuses inside tmux (ErrInTmux), and on a tmux older than tmux.MinVersion.
 func Launch(exe string, normal *tmux.Client) error {
@@ -112,7 +166,7 @@ func Launch(exe string, normal *tmux.Client) error {
 	// The right side starts first; the sidebar splits off to its left and
 	// takes focus. The commands are words, run without a shell.
 	args := []string{"-f", h.configFile(), "-T", "sync", "new-session", "-s", "wtui", "-n", "wtui"}
-	args = append(append(args, right...), ";", "split-window", "-hb", "-l", strconv.Itoa(SidebarWidth), exe, "sidebar")
+	args = append(append(args, right...), ";", "split-window", "-hb", "-l", strconv.Itoa(normal.Width()), exe, "sidebar")
 	cmd := h.tmux(args...)
 	// The terminal's client draws on stdin; only its exit message goes to
 	// stdout.
@@ -164,10 +218,13 @@ func here() (*Host, error) {
 
 // Sidebar is the host whose sidebar runs in this process's pane. It learns
 // the right side's pane and binds the wtui key, key, in the host's root
-// table: from the right it focuses the sidebar, and from the sidebar the
-// right. If the host hangs up (the terminal has gone, so the host server
-// has exited), it removes the host's folder and exits the process.
-func Sidebar(key string) (*Host, error) {
+// table: from the right it focuses the sidebar (showing it, if hidden), and
+// from the sidebar the right. It holds the sidebar at width columns until a
+// drag on the border sets another width, and hides it while the terminal is
+// narrow, from now on. If the host hangs up (the terminal has gone, so the
+// host server has exited), it removes the host's folder and exits the
+// process.
+func Sidebar(key string, width int) (*Host, error) {
 	h, err := here()
 	if err != nil {
 		return nil, err
@@ -199,7 +256,31 @@ func Sidebar(key string) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("can't bind the wtui key %s: %w", key, err)
 	}
+	// Running the window-resized hook once fits the sidebar to the terminal
+	// as it is at launch.
+	err = h.run("set-option", "-w", "-t", h.sidebar, "@wtui-width", strconv.Itoa(width), ";",
+		"set-option", "-w", "-t", h.sidebar, "@wtui-cols", "0", ";",
+		"set-hook", "-g", "window-layout-changed", h.commands(layoutChanged), ";",
+		"set-hook", "-g", "window-resized", h.commands(resized), ";",
+		"set-hook", "-R", "-t", h.sidebar, "window-resized")
+	if err != nil {
+		return nil, fmt.Errorf("can't size the sidebar: %w", err)
+	}
 	return h, nil
+}
+
+// Hidden says whether the sidebar is hidden.
+func (h *Host) Hidden() (bool, error) {
+	out, err := h.tmux("display-message", "-p", "-t", h.right, "#{window_zoomed_flag}").Output()
+	return strings.TrimSpace(string(out)) == "1", err
+}
+
+// Hide hides the sidebar, giving the right side, which gets focus, the whole
+// window, until the wtui key focuses the sidebar again. It stays hidden as
+// the terminal widens.
+func (h *Host) Hide() error {
+	// unless it's hidden already: zooming again would show it
+	return h.run("if-shell", "-F", "-t", h.right, "#{!:#{window_zoomed_flag}}", h.commands(hide))
 }
 
 // RightTTY is the tty of the right side's pane: the nested client's tty on

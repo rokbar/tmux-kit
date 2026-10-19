@@ -19,6 +19,7 @@ type fakeHost struct{ asked []string }
 
 func (h *fakeHost) FocusRight() error  { h.asked = append(h.asked, "focus right"); return nil }
 func (h *fakeHost) PrefixRight() error { h.asked = append(h.asked, "prefix right"); return nil }
+func (h *fakeHost) Hide() error        { h.asked = append(h.asked, "hide"); return nil }
 
 // fakeNormal is a normal server with the sessions in snap, whose nested
 // client shows active (an id). It records what the sidebar asked of it.
@@ -870,6 +871,18 @@ func TestEscGoesRight(t *testing.T) {
 	run(t, cmd)
 	if want := []string{"focus right"}; !slices.Equal(f.host.asked, want) {
 		t.Errorf("esc asked the host %q, want %q", f.host.asked, want)
+	}
+}
+
+// z hides the sidebar, which gives the right side the whole window, and
+// focus.
+func TestZHidesTheSidebar(t *testing.T) {
+	f := fixture()
+	m := started(t, f)
+	_, cmd := update(t, m, press("z"))
+	run(t, cmd)
+	if want := []string{"hide"}; !slices.Equal(f.host.asked, want) {
+		t.Errorf("z asked the host %q, want %q", f.host.asked, want)
 	}
 }
 

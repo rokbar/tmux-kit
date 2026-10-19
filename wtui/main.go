@@ -72,7 +72,7 @@ func runSidebar() error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	normal := &tmux.Client{}
 	key := normal.Key()
-	h, err := host.Sidebar(key)
+	h, err := host.Sidebar(key, normal.Width())
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,14 @@ func runSidebar() error {
 	}
 	watch := normal.Watch()
 	c := sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe)}
-	p := tea.NewProgram(sidebar.New(c, key))
+	var m tea.Model = sidebar.New(c, key)
+	// The sidebar starts with focus, as the host gives it, unless it starts
+	// hidden (a narrow terminal): tmux moved focus right before the sidebar
+	// asked for focus events, so it won't say so.
+	if hidden, _ := h.Hidden(); hidden {
+		m, _ = m.Update(tea.BlurMsg{})
+	}
+	p := tea.NewProgram(m)
 	go func() {
 		for ev := range watch.Events() {
 			p.Send(ev)
