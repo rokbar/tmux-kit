@@ -46,14 +46,14 @@ func TestDirtyAndDevPortMarkers(t *testing.T) {
 }
 
 // In a narrow sidebar, a name too long for its row is cut short before its
-// markers are.
+// markers are, and they before the agent state's column at the right edge.
 func TestALongNameIsCutBeforeItsMarkers(t *testing.T) {
 	f := worktrees()
 	f.normal.snap.Sessions[1].Name = "a-long-session-name" // fix-login's one
 	fix := &f.wt.lists["/p/api"][1]
 	fix.State, fix.DevURL = wt.Dirty, "http://localhost:3001"
 	m, _ := update(t, started(t, f), tea.WindowSizeMsg{Width: 24, Height: 30})
-	if got := plain(m); !strings.Contains(got, "\n    ▾ a-long-se… ± :3001\n        0 shell\n") {
+	if got := plain(m); !strings.Contains(got, "\n    ▾ a-long-… ± :3001\n        0 shell\n") {
 		t.Errorf("view:\n%s\nwant a-long-session-name cut short, with its markers", got)
 	}
 }

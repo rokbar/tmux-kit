@@ -53,7 +53,9 @@ type subscription struct {
 
 // subscriptions are what every Watch subscribes to. To watch something more
 // of the server's, add one, with an Event type for its values.
-var subscriptions []subscription
+var subscriptions = []subscription{
+	{"agents", agentFormat, func(value string) Event { return AgentsChanged{parseAgents(value)} }},
+}
 
 // Watch is the normal server's control-mode client, which reports changes
 // there as events. It can't be without a session, so it attaches to the

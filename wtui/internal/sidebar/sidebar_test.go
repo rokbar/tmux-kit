@@ -26,6 +26,8 @@ func (h *fakeHost) Hide() error        { h.asked = append(h.asked, "hide"); retu
 type fakeNormal struct {
 	snap      tmux.Snapshot
 	snapErr   error
+	cleared   []string // windows whose done was cleared (see agents_test.go)
+	clearErr  error
 	active    string
 	activeErr error
 	showErr   error
@@ -798,7 +800,8 @@ func TestClickingARowMovesTheCursorThere(t *testing.T) {
 	}
 }
 
-// The sidebar is narrow: lines that don't fit are cut short.
+// The sidebar is narrow: lines that don't fit are cut short, rows short of
+// the agent state's column at the right edge.
 func TestLinesFitTheSidebar(t *testing.T) {
 	f := fixture()
 	f.normal.snap.Sessions[2].Name = "a-session-with-a-long-name"
@@ -810,7 +813,7 @@ func TestLinesFitTheSidebar(t *testing.T) {
 			t.Errorf("line %q is %d columns wide, wider than the sidebar's 20", line, w)
 		}
 	}
-	if !strings.Contains(plain(m), "\n    ▸ a-session-wit…\n") {
+	if !strings.Contains(plain(m), "\n    ▸ a-session-w…\n") {
 		t.Errorf("the session's name isn't cut short:\n%s", plain(m))
 	}
 }

@@ -1,8 +1,9 @@
-// Package tree turns what wtui knows about the normal server (its sessions
-// and windows, which git repo each session's start folder is in, and each
-// repo's worktrees) into the sidebar's tree: projects, their worktrees and
-// sessions, and those sessions' windows, in order. It does no I/O, so it's
-// the same tree for the same sources.
+// Package tree turns what wtui knows about the normal server (its sessions,
+// windows and agent states, which git repo each session's start folder is
+// in, and each repo's worktrees) into the sidebar's tree: projects, their
+// worktrees and sessions, and those sessions' windows, in order, each with
+// the most urgent agent state beneath it. It does no I/O, so it's the same
+// tree for the same sources.
 package tree
 
 import (
@@ -62,7 +63,10 @@ type Node struct {
 	Session, Window string
 	Index           int
 	// Active is whether a window is its session's current window.
-	Active   bool
+	Active bool
+	// Agent is the most urgent agent state beneath the row: a window's
+	// panes', and any other row's, the rows' under it.
+	Agent    tmux.AgentState
 	Parent   *Node
 	Children []*Node
 }
@@ -109,8 +113,27 @@ func Build(src Sources) *Tree {
 			p.Children = t.worktrees(p, rows)
 		}
 	}
+	agents := map[string]tmux.AgentState{} // by window id: its panes' most urgent
+	for _, a := range src.Snapshot.Agents {
+		agents[a.Window] = max(agents[a.Window], a.State)
+	}
+	for _, p := range t.Projects {
+		rollUp(p, agents)
+	}
 	t.index(t.Projects)
 	return t
+}
+
+// rollUp sets the agent state of n and every node under it, from agents
+// (each window's), and returns n's.
+func rollUp(n *Node, agents map[string]tmux.AgentState) tmux.AgentState {
+	if n.ID.Kind == Window {
+		n.Agent = agents[n.Window]
+	}
+	for _, c := range n.Children {
+		n.Agent = max(n.Agent, rollUp(c, agents))
+	}
+	return n.Agent
 }
 
 // worktrees are git project p's rows, from its sessions (p's children, by
