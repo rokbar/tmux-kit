@@ -109,8 +109,8 @@ type Model struct {
 	// unlisted has why wt couldn't list git projects' worktrees (by main
 	// clone), as their last listings, a build's or a refresh's, said.
 	unlisted map[string]error
-	// after is a command that gives msg once d has passed: tea.Tick's, but
-	// in tests.
+	// after is a command that gives msg once d has passed (a fake in
+	// tests).
 	after func(d time.Duration, msg tea.Msg) tea.Cmd
 }
 

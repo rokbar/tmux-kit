@@ -125,6 +125,25 @@ func TestWtRunsWithGitTerminalPromptOff(t *testing.T) {
 	}
 }
 
+// wtui lists worktrees every few seconds, so the git status wt runs for it
+// must take no optional lock (refreshing the index): the user's own git
+// would find the index locked.
+func TestListRunsWithOptionalLocksOff(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	t.Setenv("GIT_OPTIONAL_LOCKS", "1")
+	t.Setenv("WT_BIN", s.Script("bin/wt",
+		`echo "$GIT_OPTIONAL_LOCKS" >'`+s.Path("locks")+`'; exec '`+s.Wt+`' "$@"`))
+	list(t, demo)
+	got, err := os.ReadFile(s.Path("locks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "0\n" {
+		t.Errorf("wt ls ran with GIT_OPTIONAL_LOCKS=%q, want 0", strings.TrimSpace(string(got)))
+	}
+}
+
 // The tmux server's PATH may lack ~/.local/bin, where install.sh puts both wt
 // and wtui, so a wt next to wtui comes before PATH; WT_BIN overrides both.
 func TestFindsWtByWtBinThenNextToWtuiThenOnPath(t *testing.T) {

@@ -71,7 +71,15 @@ func New(wtuiPath string) *Client { return &Client{wtuiPath: wtuiPath} }
 // List returns the main clone, then every worktree, of the repo dir is in.
 // A wt without `ls --porcelain` is ErrTooOld, whatever it printed.
 func (c *Client) List(dir string) ([]Worktree, error) {
-	out, err := c.run(dir, always(ErrTooOld), "ls", "--porcelain")
+	cmd, err := c.command(dir, "ls", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	// wtui lists worktrees every few seconds, so the git status wt runs must
+	// not refresh the index, which takes its lock: the user's own git could
+	// find it locked.
+	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
+	out, err := output(cmd, always(ErrTooOld))
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +263,11 @@ func (c *Client) run(dir string, kindOf func(status int) error, args ...string) 
 	if err != nil {
 		return nil, err
 	}
+	return output(cmd, kindOf)
+}
+
+// output runs cmd, a wt command, and returns its stdout, as run does.
+func output(cmd *exec.Cmd, kindOf func(status int) error) ([]byte, error) {
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

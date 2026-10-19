@@ -45,6 +45,19 @@ func TestDirtyAndDevPortMarkers(t *testing.T) {
 	}
 }
 
+// In a narrow sidebar, a name too long for its row is cut short before its
+// markers are.
+func TestALongNameIsCutBeforeItsMarkers(t *testing.T) {
+	f := worktrees()
+	f.normal.snap.Sessions[1].Name = "a-long-session-name" // fix-login's one
+	fix := &f.wt.lists["/p/api"][1]
+	fix.State, fix.DevURL = wt.Dirty, "http://localhost:3001"
+	m, _ := update(t, started(t, f), tea.WindowSizeMsg{Width: 24, Height: 30})
+	if got := plain(m); !strings.Contains(got, "\n    ▾ a-long-se… ± :3001\n        0 shell\n") {
+		t.Errorf("view:\n%s\nwant a-long-session-name cut short, with its markers", got)
+	}
+}
+
 // clock stands in for the sidebar's timer: it records each tick the sidebar
 // asks for (how long from then, and the message it's to give), and none goes
 // off by itself. A test gives the sidebar the message when it likes.

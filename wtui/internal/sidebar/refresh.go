@@ -56,8 +56,8 @@ func (m Model) refreshAll(follow bool) (Model, tea.Cmd) {
 }
 
 // refresh has wt list the worktrees of the git project whose main clone is
-// project again, in the background, unless that's running already. Then,
-// if follow, another listing follows it, once.
+// project again, in the background. If a listing of it is running already,
+// none starts; if follow, another follows that one, once.
 func (m Model) refresh(project string, follow bool) (Model, tea.Cmd) {
 	if _, running := m.refreshing[project]; running {
 		m.refreshing[project] = m.refreshing[project] || follow
@@ -72,23 +72,20 @@ func (m Model) refresh(project string, follow bool) (Model, tea.Cmd) {
 }
 
 // withRefreshed is the sidebar with a project's worktrees as listed again,
-// if the tree still shows that project, and the listing that was to follow,
-// started. As after a build, a project wt fails to list shows as tmux sees
-// it, and the status line says why.
+// and the listing that was to follow, started. As after a build, a project
+// wt fails to list shows as tmux sees it, and the status line says why.
 func (m Model) withRefreshed(r refreshed) (Model, tea.Cmd) {
 	again := m.refreshing[r.project]
 	delete(m.refreshing, r.project)
-	if _, shown := m.src.Worktrees[r.project]; shown {
-		src := m.src
-		src.Worktrees = maps.Clone(src.Worktrees)
-		src.Worktrees[r.project] = r.rows
-		if r.err != nil {
-			m.unlisted[r.project] = r.err
-		} else {
-			delete(m.unlisted, r.project)
-		}
-		m = m.withSources(src).sayUnlisted()
+	src := m.src
+	src.Worktrees = maps.Clone(src.Worktrees)
+	src.Worktrees[r.project] = r.rows
+	if r.err != nil {
+		m.unlisted[r.project] = r.err
+	} else {
+		delete(m.unlisted, r.project)
 	}
+	m = m.withSources(src).sayUnlisted()
 	if again {
 		return m.refresh(r.project, false)
 	}

@@ -148,7 +148,8 @@ func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
 // row is how row r shows: after a two-column margin (where session numbers
 // go), indented by its depth, a fold mark if it has children, its name, and
-// then its markers (see markers).
+// then its markers (see markers). A name too long for the sidebar is cut
+// short before its markers are.
 func (m Model) row(r tree.Row) string {
 	mark := " "
 	if len(r.Children) > 0 {
@@ -161,7 +162,11 @@ func (m Model) row(r tree.Row) string {
 	if r.ID.Kind == tree.Window {
 		name = fmt.Sprintf("%d %s", r.Index, r.Name)
 	}
-	return "  " + strings.Repeat("  ", r.Depth) + mark + " " + name + markers(r.Node)
+	lead, marks := "  "+strings.Repeat("  ", r.Depth)+mark+" ", markers(r.Node)
+	if m.width > 0 && marks != "" {
+		name = ansi.Truncate(name, m.width-ansi.StringWidth(lead+marks), "…")
+	}
+	return lead + name + marks
 }
 
 // markers are what node n's row shows after its name if it stands for a
