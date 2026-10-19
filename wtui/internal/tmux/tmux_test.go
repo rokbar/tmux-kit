@@ -81,6 +81,31 @@ func TestKeyIsTheWtuiKeyOption(t *testing.T) {
 	}
 }
 
+// The sidebar's width is the @wtui-width option, in columns: 30 while it
+// isn't set, or isn't a number of columns.
+func TestWidthIsTheWtuiWidthOption(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	c := &tmux.Client{}
+	if got := c.Width(); got != 30 {
+		t.Errorf("with no server, Width() = %d, want 30", got)
+	}
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	if got := c.Width(); got != 30 {
+		t.Errorf("with @wtui-width unset, Width() = %d, want 30", got)
+	}
+	tmuxRun(t, "set-option", "-g", "@wtui-width", "42")
+	if got := c.Width(); got != 42 {
+		t.Errorf("with @wtui-width 42, Width() = %d", got)
+	}
+	for _, bad := range []string{"wide", "0", "-5", "25%", "3.5"} {
+		tmuxRun(t, "set-option", "-g", "@wtui-width", bad)
+		if got := c.Width(); got != 30 {
+			t.Errorf("with @wtui-width %s, Width() = %d, want 30", bad, got)
+		}
+	}
+}
+
 // The snapshot has every session, by name, with its windows, by index.
 // Names and folders may have spaces, and names may be in any script.
 func TestSnapshot(t *testing.T) {

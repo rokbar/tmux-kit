@@ -68,14 +68,21 @@ func launch() error {
 func runSidebar() error {
 	normal := &tmux.Client{}
 	key := normal.Key()
-	h, err := host.Sidebar(key)
+	h, err := host.Sidebar(key, normal.Width())
 	if err != nil {
 		return err
 	}
 	if normal.Nested, err = h.RightTTY(); err != nil {
 		return errors.Join(err, h.Close())
 	}
-	_, err = tea.NewProgram(sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key)).Run()
+	var m tea.Model = sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key)
+	// The sidebar starts with focus, as the host gives it, unless it starts
+	// hidden (a narrow terminal): tmux moved focus right before the sidebar
+	// asked for focus events, so it won't say so.
+	if hidden, _ := h.Hidden(); hidden {
+		m, _ = m.Update(tea.BlurMsg{})
+	}
+	_, err = tea.NewProgram(m).Run()
 	return errors.Join(err, h.Close())
 }
 

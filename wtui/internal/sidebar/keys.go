@@ -26,6 +26,7 @@ var actions = []action{
 	{[]string{"space"}, "fold or unfold", Model.toggle},
 	{[]string{"enter"}, "show on the right; fold or unfold a project", Model.enter},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
+	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
 	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},
 	{[]string{"q"}, "close wtui", Model.quit},
@@ -132,4 +133,5 @@ func (m Model) rebuildAll() (Model, tea.Cmd) {
 
 func (m Model) goRight() (Model, tea.Cmd)     { return m, ask(m.c.Host.FocusRight) }
 func (m Model) prefixRight() (Model, tea.Cmd) { return m, ask(m.c.Host.PrefixRight) }
+func (m Model) hide() (Model, tea.Cmd)        { return m, ask(m.c.Host.Hide) }
 func (m Model) quit() (Model, tea.Cmd)        { return m, tea.Quit }

@@ -25,6 +25,10 @@ const MinVersion = "3.6"
 // isn't set.
 const DefaultKey = `C-\`
 
+// DefaultWidth is the sidebar's width in columns while the normal server's
+// @wtui-width option isn't set.
+const DefaultWidth = 30
+
 // Client is wtui's client for the normal server.
 type Client struct {
 	// Nested is the tty of the nested client, the one a host shows on its
@@ -115,6 +119,17 @@ func (c *Client) Key() string {
 		return key
 	}
 	return DefaultKey
+}
+
+// Width is the sidebar's width in columns: the normal server's @wtui-width
+// option, or DefaultWidth while it isn't set to a number of columns (or
+// there's no server).
+func (c *Client) Width() int {
+	v, err := c.output("show-options", "-gqv", "@wtui-width")
+	if n, convErr := strconv.Atoi(v); err == nil && convErr == nil && n > 0 {
+		return n
+	}
+	return DefaultWidth
 }
 
 // Snapshot is the normal server's sessions and windows now, from one tmux

@@ -21,6 +21,9 @@ type Host interface {
 	FocusRight() error
 	// PrefixRight moves focus to the right side and passes tmux's prefix on.
 	PrefixRight() error
+	// Hide hides the sidebar, giving the right side the whole window and
+	// focus, until the sidebar gets focus again.
+	Hide() error
 }
 
 // Normal is what the sidebar asks of the normal tmux server.
