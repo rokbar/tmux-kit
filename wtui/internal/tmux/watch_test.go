@@ -92,7 +92,10 @@ func TestWatchFollowsTheNestedClient(t *testing.T) {
 	}
 
 	tmuxRun(t, "switch-client", "-c", nested.Nested, "-t", "=b")
-	next(t, w, "b to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == id(t, "b") })
+	e := next(t, w, "b to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == id(t, "b") })
+	if e.Ended {
+		t.Error("switching the nested client to b says a ended, which it didn't")
+	}
 	waitFor(t, "the control client to follow the nested client to b", onSession(t, "b"))
 }
 
@@ -176,20 +179,27 @@ func needTmux(t *testing.T, min string) {
 
 // When the active session ends, tmux moves the nested client to the session
 // with the most recent activity (no-detach-on-destroy), and the control
-// client follows it there.
+// client follows it there. The event says the session it was on ended.
 func TestWatchFollowsTheNestedClientWhenItsSessionEnds(t *testing.T) {
 	s := sandbox.New(t)
 	s.NeedTmux()
 	needTmux(t, "3.6")
 	tmuxRun(t, "new-session", "-d", "-s", "a")
 	tmuxRun(t, "new-session", "-d", "-s", "b")
-	w := started(t, "a")
-	waitFor(t, "the control client to be on a", onSession(t, "a"))
+	nested := nestedClient(t, "a")
+	w := watch(t, nested)
+	next(t, w, "a to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == id(t, "a") })
+	tmuxRun(t, "switch-client", "-c", nested.Nested, "-t", "=b")
+	next(t, w, "b to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == id(t, "b") })
+	waitFor(t, "the control client to be on b", onSession(t, "b"))
 	time.Sleep(1100 * time.Millisecond) // c is the most recent
 	tmuxRun(t, "new-session", "-d", "-s", "c")
 	c := id(t, "c")
-	tmuxRun(t, "kill-session", "-t", "=a")
-	next(t, w, "c to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == c })
+	tmuxRun(t, "kill-session", "-t", "=b")
+	e := next(t, w, "c to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == c })
+	if !e.Ended {
+		t.Error("moving on from b, which ended, doesn't say b ended")
+	}
 	waitFor(t, "the control client to be on c", onSession(t, "c"))
 }
 
@@ -229,7 +239,8 @@ func TestWatchComesBackIfItsClientEnds(t *testing.T) {
 }
 
 // When the server ends, so does the control client, with nowhere to attach
-// again: the Watch says the sessions changed (they're gone), and waits.
+// again: the Watch says the sessions changed (they're gone) and the nested
+// client shows none, and waits.
 func TestWatchSaysSoWhenTheServerEnds(t *testing.T) {
 	s := sandbox.New(t)
 	s.NeedTmux()
@@ -238,6 +249,7 @@ func TestWatchSaysSoWhenTheServerEnds(t *testing.T) {
 	waitFor(t, "the control client to be on a", onSession(t, "a"))
 	tmuxRun(t, "kill-server")
 	next(t, w, "the sessions to have changed", always[tmux.SessionsChanged])
+	next(t, w, "no session to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == "" })
 }
 
 // A subscription's format is about the whole server, not only the control

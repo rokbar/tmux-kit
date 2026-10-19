@@ -17,9 +17,9 @@ fi
 # wtui finds the wt next to it (see build_wtui), as when installed
 unset WT_BIN
 
-# build_wtui: builds wtui into the sandbox's ~/.local/bin, with wt next to it,
-# as install.sh puts them. Without Go, it skips the whole test: it says so and
-# exits 0.
+# build_wtui: builds wtui into the sandbox's ~/.local/bin, with wt and t next
+# to it, as install.sh puts them. Without Go, it skips the whole test: it says
+# so and exits 0.
 build_wtui() {
   if ! command -v go >/dev/null; then
     echo "skip: $(basename "$0"): go isn't on PATH, so wtui can't be built"
@@ -33,4 +33,5 @@ build_wtui() {
     go build -buildvcs=false -o "$HOME/.local/bin/wtui" . >"$tmp/log" 2>&1) ||
     fail "go build of wtui failed: $(cat "$tmp/log")"
   ln -s "$kit/bin/wt" "$HOME/.local/bin/wt"
+  ln -s "$kit/bin/t" "$HOME/.local/bin/t"
 }

@@ -14,9 +14,13 @@ import (
 type Event interface{ event() }
 
 // ActiveSessionChanged is the nested client showing another session (an
-// id): because it was asked to, because the user switched it (prefix s), or
-// because its session ended and tmux moved it.
-type ActiveSessionChanged struct{ Session string }
+// id), or none (""): because it was asked to, because the user switched it
+// (prefix s), or because its session ended and tmux moved it, which Ended
+// says, or had nowhere to move it.
+type ActiveSessionChanged struct {
+	Session string
+	Ended   bool
+}
 
 func (ActiveSessionChanged) event() {}
 
@@ -97,8 +101,12 @@ func (w *Watch) run() {
 	for {
 		if session, _ := w.c.ActiveSession(); session != "" && w.attach(session, again) {
 			again = true
-			// e.g. the last session has gone, or the server has
+			// e.g. the last session has gone, or the server has, and with
+			// it the nested client's session
 			w.send(SessionsChanged{})
+			if now, err := w.c.ActiveSession(); err == nil && now == "" {
+				w.send(ActiveSessionChanged{})
+			}
 		}
 		select {
 		case <-w.stop:
@@ -151,7 +159,7 @@ func (w *Watch) attach(session string, again bool) bool {
 		in.Close() // the control client ends once its input does
 	}()
 	w.windows, _ = w.c.allWindows()
-	w.send(ActiveSessionChanged{session})
+	w.send(ActiveSessionChanged{Session: session})
 	w.read(out, in, session)
 	close(ended)
 	cmd.Wait()
@@ -161,9 +169,15 @@ func (w *Watch) attach(session string, again bool) bool {
 // read reads the control client's notifications from out until it ends,
 // giving it commands on in. It was attached to session.
 func (w *Watch) read(out io.Reader, in io.Writer, session string) {
+	// from is the session the nested client was on. If tmux moved the
+	// client because that session ended, it's gone by the time tmux says
+	// where the client went: tmux destroys the session first.
+	from := session
 	follow := func(to string) {
 		fmt.Fprintf(in, "switch-client -t '%s'\n", to)
-		w.send(ActiveSessionChanged{to})
+		_, err := w.c.output("has-session", "-t", from)
+		w.send(ActiveSessionChanged{Session: to, Ended: err != nil})
+		from = to
 	}
 	attached := false
 	lines := bufio.NewScanner(out)

@@ -185,11 +185,27 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
-func TestSnapshotFailsWithNoServer(t *testing.T) {
+// With no server (e.g. once the last session has ended), there's no session,
+// and the nested client shows none: that isn't a failure. Neither starts a
+// server.
+func TestWithNoServerThereIsNoSession(t *testing.T) {
 	s := sandbox.New(t)
 	s.NeedTmux()
-	if got, err := (&tmux.Client{}).Snapshot(); err == nil {
-		t.Errorf("with no server, Snapshot() = %+v, want tmux's error", got)
+	c := &tmux.Client{Nested: "/dev/ttys999"}
+	if got, err := c.Snapshot(); err != nil || len(got.Sessions) != 0 {
+		t.Errorf("with no server, Snapshot() = %+v, %v; want no sessions", got, err)
+	}
+	if got, err := c.ActiveSession(); err != nil || got != "" {
+		t.Errorf("with no server, ActiveSession() = %q, %v; want none", got, err)
+	}
+	// a server that has gone leaves its socket behind
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	tmuxRun(t, "kill-server")
+	if got, err := c.Snapshot(); err != nil || len(got.Sessions) != 0 {
+		t.Errorf("once the server has gone, Snapshot() = %+v, %v; want no sessions", got, err)
+	}
+	if out, err := exec.Command("tmux", "list-sessions").CombinedOutput(); err == nil {
+		t.Errorf("a server is running, with sessions %s", out)
 	}
 }
 

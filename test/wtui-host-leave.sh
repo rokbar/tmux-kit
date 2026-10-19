@@ -52,18 +52,6 @@ type_in t3 'C-]'
 wait_until "C-] to focus the right side" focus_on t3 right
 type_in t3 'C-]'
 wait_until "C-] to focus the sidebar" focus_on t3 sidebar
-
-# once the last session has ended, the right side says there's none, and the
-# host stays; enter there tries again
-right_shows() { case "$(host t3 capture-pane -p -t "$(right_pane t3)")" in *"$1"*) ;; *) return 1 ;; esac; }
-tmux kill-session -t =alpha
-tmux kill-session -t =beta
-wait_until "the right side to say there's no session" right_shows "No session to show"
-! launcher_exited t3 || fail "wtui exited when the last session ended"
-new_session delta
-type_in t3 'C-]'
-wait_until "C-] to focus the right side" focus_on t3 right
-type_in t3 Enter
-wait_until "enter to show delta on the right" eval '[ "$(showing t3)" = delta ]'
+# (when the last session ends, the host stays: test/wtui-host-start.sh)
 
 echo "ok: wtui-host-leave"

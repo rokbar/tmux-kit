@@ -6,7 +6,6 @@
 package host
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
@@ -134,10 +134,12 @@ func (h *Host) run(args ...string) error {
 
 // Launch is the launcher, run in a plain terminal: it starts a host for this
 // launch and attaches the terminal to it, the sidebar on the left, as wide as
-// the normal server's @wtui-width says, and the session with the most recent
-// activity on the right. exe is wtui, which the
-// host's panes run. Launch returns once the terminal has left the host. It
-// refuses inside tmux (ErrInTmux), and on a tmux older than tmux.MinVersion.
+// the normal server's @wtui-width says, and on the right the session
+// Starting picks for the folder it's run in; with no session (or no server),
+// a new one for that folder, which t starts. exe is wtui, which the host's
+// panes run, with t next to it. Launch returns once the terminal has left the
+// host. It refuses inside tmux (ErrInTmux), and on a tmux older than
+// tmux.MinVersion.
 func Launch(exe string, normal *tmux.Client) error {
 	if os.Getenv("TMUX") != "" {
 		return ErrInTmux
@@ -149,6 +151,10 @@ func Launch(exe string, normal *tmux.Client) error {
 	if tmux.Older(v, tmux.MinVersion) {
 		return fmt.Errorf("needs tmux %s or newer, and this is tmux %s", tmux.MinVersion, v)
 	}
+	session, err := launchSession(exe, normal)
+	if err != nil {
+		return err
+	}
 
 	dir, err := os.MkdirTemp("", "wtui-")
 	if err != nil {
@@ -159,14 +165,10 @@ func Launch(exe string, normal *tmux.Client) error {
 		h.cleanup()
 		return err
 	}
-	right := []string{exe, "right"}
-	if s := mostRecent(normal); s != "" {
-		right = append(right, s)
-	}
 	// The right side starts first; the sidebar splits off to its left and
 	// takes focus. The commands are words, run without a shell.
-	args := []string{"-f", h.configFile(), "-T", "sync", "new-session", "-s", "wtui", "-n", "wtui"}
-	args = append(append(args, right...), ";", "split-window", "-hb", "-l", strconv.Itoa(normal.Width()), exe, "sidebar")
+	args := []string{"-f", h.configFile(), "-T", "sync", "new-session", "-s", "wtui", "-n", "wtui", exe, "right", session}
+	args = append(args, ";", "split-window", "-hb", "-l", strconv.Itoa(normal.Width()), exe, "sidebar")
 	cmd := h.tmux(args...)
 	// The terminal's client draws on stdin; only its exit message goes to
 	// stdout.
@@ -195,16 +197,10 @@ func isExitNote(said string) bool {
 // same second, the first by name.
 func mostRecent(normal *tmux.Client) string {
 	snap, _ := normal.Snapshot()
-	var best *tmux.Session
-	for i, s := range snap.Sessions {
-		if best == nil || s.Activity.After(best.Activity) {
-			best = &snap.Sessions[i]
-		}
+	if s := latest(snap.Sessions); s != nil {
+		return s.ID
 	}
-	if best == nil {
-		return ""
-	}
-	return best.ID
+	return ""
 }
 
 // here is the host this process runs in, from the TMUX its panes get.
@@ -293,6 +289,25 @@ func (h *Host) RightTTY() (string, error) {
 // FocusRight moves focus to the right side.
 func (h *Host) FocusRight() error { return h.run("select-pane", "-t", h.right) }
 
+// FocusSidebar moves focus to the sidebar, which shows it if it's hidden.
+func (h *Host) FocusSidebar() error {
+	if h.sidebar == "" { // the right side's wrapper knows only its own pane
+		out, err := h.tmux("list-panes", "-F", "#{pane_id}").Output()
+		if err != nil {
+			return fmt.Errorf("can't list the host's panes: %w", err)
+		}
+		for _, id := range strings.Fields(string(out)) {
+			if id != h.right {
+				h.sidebar = id
+			}
+		}
+		if h.sidebar == "" {
+			return errors.New("the host has no sidebar")
+		}
+	}
+	return h.run("select-pane", "-t", h.sidebar)
+}
+
 // PrefixRight moves focus to the right side and passes tmux's prefix on to
 // the nested client there, so the key typed next completes it.
 func (h *Host) PrefixRight() error {
@@ -318,26 +333,34 @@ func (h *Host) cleanup() {
 }
 
 // Right is the right side's wrapper. It runs the nested client, attached to
-// session (an id; "" for the most recent), in this process's pane. Once the
-// user detaches it (prefix d), the host closes. If it ends otherwise (no
-// session left, or none to attach to), the pane says so, and enter tries the
-// most recent session again.
+// session (an id or =name; "" for the most recent), in this process's pane.
+// Once the user detaches it (prefix d), the host closes. If it ends
+// otherwise (the last session has ended, or the server has), or can't
+// attach, the pane says there's no session and the sidebar takes focus; as
+// soon as there's a session again, the nested client attaches to the most
+// recent.
 func Right(normal *tmux.Client, session string) error {
 	h, err := here()
 	if err != nil {
 		return err
 	}
-	in := bufio.NewReader(os.Stdin)
+	h.right = os.Getenv("TMUX_PANE")
 	for {
 		fmt.Print("\033[H\033[2J")
 		detached, said := normal.Attach(session)
 		if detached {
 			return h.Close()
 		}
-		fmt.Printf("%s\r\n\r\nNo session to show. Enter tries again.\r\n", said)
-		if _, err := in.ReadString('\n'); err != nil {
-			return err // the host has gone
+		fmt.Printf("%s\r\n\r\nNo session to show.\r\np in the sidebar opens a project; a session made anywhere shows here.\r\n", said)
+		h.FocusSidebar() // the right side has nothing to type into
+		session = ""
+		for session == "" {
+			time.Sleep(lookEvery)
+			session = mostRecent(normal)
 		}
-		session = mostRecent(normal)
 	}
 }
+
+// lookEvery is how often the right side looks for a session while it has
+// none to show.
+const lookEvery = 500 * time.Millisecond

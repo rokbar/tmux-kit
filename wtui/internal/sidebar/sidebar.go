@@ -23,6 +23,8 @@ import (
 type Host interface {
 	// FocusRight moves focus to the right side.
 	FocusRight() error
+	// FocusSidebar moves focus to the sidebar, showing it if it's hidden.
+	FocusSidebar() error
 	// PrefixRight moves focus to the right side and passes tmux's prefix on.
 	PrefixRight() error
 	// Hide hides the sidebar, giving the right side the whole window and
@@ -306,7 +308,19 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m = m.inSight().toActive()
 		}
 	case tmux.ActiveSessionChanged:
-		return m.update(Active{Session: msg.Session})
+		// The right side shows a session of tmux's choosing when it moves on
+		// from one that ended, or when it had none (the last had ended): the
+		// cursor goes to it. In the first case the sidebar takes focus too,
+		// so that keys meant for the session that ended don't land in this
+		// one.
+		if msg.Ended || m.active == "" && msg.Session != "" {
+			m.seek = true
+		}
+		m, _ = m.update(Active{Session: msg.Session})
+		if msg.Ended {
+			return m, ask(m.c.Host.FocusSidebar)
+		}
+		return m, nil
 	case shown:
 		m.status.action = errText(msg.err)
 		if msg.session != "" {

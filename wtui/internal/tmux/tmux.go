@@ -151,13 +151,16 @@ func (c *Client) Editor() (string, error) {
 }
 
 // Snapshot is the normal server's sessions and windows now, from one tmux
-// command.
+// command. With no server running, there are none.
 func (c *Client) Snapshot() (Snapshot, error) {
 	// Tab-separated, free text last: tmux escapes tabs in names, and output
 	// keeps them (and UTF-8) since output runs tmux with -u.
 	out, err := c.output(
 		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_attached}\t#{session_name}\t#{session_path}", ";",
 		"list-windows", "-a", "-F", "W\t"+windowFormat)
+	if noServer(err) {
+		return Snapshot{}, nil
+	}
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -202,9 +205,12 @@ func parseWindow(line string) (session string, w Window, ok bool) {
 }
 
 // ActiveSession is the id of the session the nested client shows, or ""
-// while it shows none.
+// while it shows none (or there's no server).
 func (c *Client) ActiveSession() (string, error) {
 	out, err := c.output("list-clients", "-F", "#{client_tty} #{session_id}")
+	if noServer(err) {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -231,9 +237,10 @@ func (c *Client) Show(session, window string) error {
 }
 
 // Attach runs the nested client on this process's terminal: a tmux client
-// attached to session (an id, or "" to have tmux choose), and returns once it
-// exits, with what it said as it did. detached is whether the user detached
-// it (prefix d), rather than its running out of sessions or failing.
+// attached to session (an id or =<name>, or "" to have tmux choose), and
+// returns once it exits, with what it said as it did. detached is whether
+// the user detached it (prefix d), rather than its running out of sessions
+// or failing.
 //
 // It attaches with the no-detach-on-destroy flag, so when its session ends,
 // tmux moves it to the session with the most recent activity, whatever the
@@ -266,6 +273,17 @@ func (c *Client) output(args ...string) (string, error) {
 		err = errors.New(msg)
 	}
 	return strings.TrimSpace(string(out)), err
+}
+
+// noServer says whether err is tmux finding no server to talk to: no socket,
+// or one a server has left behind.
+func noServer(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.HasPrefix(msg, "no server running on ") ||
+		strings.HasPrefix(msg, "error connecting to ") && strings.HasSuffix(msg, "(No such file or directory)")
 }
 
 func (c *Client) command(args ...string) *exec.Cmd {
