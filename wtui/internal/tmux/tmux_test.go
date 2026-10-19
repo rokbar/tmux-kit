@@ -167,12 +167,13 @@ func TestReachesTheNormalServerFromInsideAHost(t *testing.T) {
 }
 
 // nestedClient attaches a client to session from the pane of a session
-// standing in for a terminal, as a host's right side does, and returns the
-// normal server's client for it.
+// standing in for a terminal, as a host's right side does (no-detach-on-
+// destroy, which tmux before 3.6 ignores), and returns the normal server's
+// client for it.
 func nestedClient(t *testing.T, session string) *tmux.Client {
 	t.Helper()
 	tmuxRun(t, "new-session", "-d", "-s", "term", "-x", "100", "-y", "30",
-		"env", "-u", "TMUX", "tmux", "attach", "-t", "="+session)
+		"env", "-u", "TMUX", "tmux", "attach", "-f", "no-detach-on-destroy", "-t", "="+session)
 	tty := tmuxRun(t, "display-message", "-p", "-t", "=term:", "#{pane_tty}")
 	waitFor(t, "the client to attach", func() bool { return showing(t, tty) != "" })
 	return &tmux.Client{Nested: tty}

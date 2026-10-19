@@ -502,13 +502,17 @@ func TestEnterShowsASessionOrAWindow(t *testing.T) {
 	}
 }
 
-// Once a window is shown, the tree rebuilds, marking it as its session's
-// active window.
+// Once a window is shown, tmux says its session's windows changed, and the
+// tree marks it as the active window; showing it rebuilds nothing.
 func TestAShownWindowBecomesItsSessionsActiveOne(t *testing.T) {
-	m := keys(t, focused(t, fixture()), press("j")) // fix-login's shell
+	f := fixture()
+	m := keys(t, focused(t, f), press("j")) // fix-login's shell
 	m, cmd := update(t, m, enter)
 	m, rebuild := update(t, m, run(t, cmd))
-	m = feed(t, m, rebuild)
+	if rebuild != nil {
+		t.Error("showing a window rebuilds the tree")
+	}
+	m, _ = update(t, m, tmux.WindowsChanged{Session: "$2", Windows: f.normal.snap.Sessions[1].Windows})
 	m, _ = update(t, m, tea.BlurMsg{}) // focus went right
 	if got := styles(m); got["        0 shell"] != "1" || got["        1 dev"] != "" {
 		t.Errorf("after showing fix-login's shell, its windows are styled %q and %q, want shell in bold",
@@ -831,24 +835,6 @@ func TestTheTreeScrollsInAShortPane(t *testing.T) {
 	want = " wtui\n    ▸ api\n    ▸ Bugfix\n    ▾ fix-login\n        0 shell\ncan't find session"
 	if got := plain(m); got != want {
 		t.Errorf("with a status line, the view is:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-// The right side can change session by itself (prefix s there), so the
-// sidebar asks again which session is active, and the highlight follows.
-func TestFollowsTheRightSide(t *testing.T) {
-	f := fixture()
-	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos}, `C-\`)
-	m = feed(t, m, m.Init())
-	m, again := update(t, m, Active{Session: "$2"})
-	if again == nil {
-		t.Fatal("the sidebar doesn't ask again which session is active")
-	}
-	f.normal.active = "$3"
-	m, ask := update(t, m, pollDue{}) // the tick, without waiting for it
-	m = feed(t, m, ask)
-	if got := styles(m)["    ▾ notes"]; got != "1;36" {
-		t.Errorf("after the right side moved to notes, notes is styled %q, want it highlighted:\n%s", got, plain(m))
 	}
 }
 

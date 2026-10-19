@@ -64,7 +64,10 @@ func launch() error {
 	return host.Launch(exe, &tmux.Client{})
 }
 
-// runSidebar runs the sidebar in its host until q, then closes the host.
+// runSidebar runs the sidebar in its host until q, then closes the host. The
+// normal server's changes reach the sidebar as they happen, from a Watch that
+// ends before the host does. (If the host hangs up instead, the Watch's
+// control client ends with this process.)
 func runSidebar() error {
 	normal := &tmux.Client{}
 	key := normal.Key()
@@ -75,8 +78,15 @@ func runSidebar() error {
 	if normal.Nested, err = h.RightTTY(); err != nil {
 		return errors.Join(err, h.Close())
 	}
-	_, err = tea.NewProgram(sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key)).Run()
-	return errors.Join(err, h.Close())
+	watch := normal.Watch()
+	p := tea.NewProgram(sidebar.New(sidebar.Clients{Host: h, Normal: normal, Repos: gitrepo.Lookup{}}, key))
+	go func() {
+		for ev := range watch.Events() {
+			p.Send(ev)
+		}
+	}()
+	_, err = p.Run()
+	return errors.Join(err, watch.Close(), h.Close())
 }
 
 // runPopup is the popup the host replaces, unused by the launcher.
