@@ -68,10 +68,13 @@ func (m Model) View() tea.View {
 		lines = append(lines, styled(m.fitTo(m.row(r), m.width-agentColumn), params...)+agentMark(r.Agent, cursor))
 	}
 	status := m.statusLines()
-	for room >= 0 && len(lines) < m.height-len(status) {
+	for room >= 0 && len(lines) < m.height-len(status)-1 {
 		lines = append(lines, "") // so the status line is at the bottom
 	}
 	lines = append(lines, status...)
+	if room >= 0 {
+		lines = append(lines, styled(m.fit(footer), dim))
+	}
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	v.ReportFocus = true
@@ -102,13 +105,17 @@ func (m Model) statusLines() []string {
 	return lines
 }
 
-// room is how many rows the view has room for under the header, or -1 for
-// any number while the height isn't known.
+// footer is the sidebar's last line, once its height is known.
+const footer = "? shortcuts"
+
+// room is how many rows the view has room for between the header and the
+// status line, above the footer, or -1 for any number while the height isn't
+// known.
 func (m Model) room() int {
 	if m.height <= 0 {
 		return -1
 	}
-	return max(0, m.height-1-len(m.statusLines()))
+	return max(0, m.height-2-len(m.statusLines()))
 }
 
 // fit is line cut short or padded to the sidebar's width, once that's known.

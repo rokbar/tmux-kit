@@ -135,6 +135,23 @@ func (c *Client) Pick(dir string, done tea.ExecCallback) tea.Cmd {
 	return c.onTerminal(dir, done, "pick")
 }
 
+// RunPick is the picker (`wt pick`), run in dir, the invoking worktree, as
+// Pick has it, on this process's own terminal: a popup's, for the picker's
+// dialog. It returns once wt has exited. wt exits 0 whether the picker
+// opened something or was cancelled; if it fails, the error's text is what
+// it said on stderr, which the terminal showed too.
+func (c *Client) RunPick(dir string) error {
+	cmd, err := c.command(dir, "pick")
+	if err != nil {
+		return err
+	}
+	r := &terminalRun{cmd: cmd}
+	r.SetStdin(os.Stdin)
+	r.SetStdout(os.Stdout)
+	r.SetStderr(os.Stderr)
+	return r.Run()
+}
+
 // GitUI is the user's git UI (`wt git-ui <path>`), run in the main clone or
 // worktree at path. wt runs in dir, as for List. The git UI needs the
 // terminal, so this is a command that pauses wtui while it runs, then reports

@@ -36,6 +36,10 @@ type fakeNormal struct {
 	lastErr   error
 	snapshots int      // how many times Snapshot ran
 	shown     []string // "session" or "session:window", by id, or "last"
+	// popups are the popups opened (see dialogs_test.go)
+	popups   []tmux.Popup
+	popupErr error
+	onPopup  func(tmux.Popup)
 }
 
 func (n *fakeNormal) Snapshot() (tmux.Snapshot, error) {
@@ -829,17 +833,18 @@ func TestLinesFitTheSidebar(t *testing.T) {
 }
 
 // In a short pane, the rows scroll to keep the cursor in sight, and the
-// status line stays at the bottom. A click is on the row it's on.
+// status line stays at the bottom, above the footer. A click is on the row
+// it's on.
 func TestTheTreeScrollsInAShortPane(t *testing.T) {
 	f := fixture()
 	m := focused(t, f)
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 6})
-	want := " wtui\n  ▾ api\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell"
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 7})
+	want := " wtui\n  ▾ api\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\n? shortcuts"
 	if got := plain(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
 	m = keys(t, m, press("j"), press("j"), press("j")) // project notes
-	want = " wtui\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\n        1 dev\n  ▾ notes"
+	want = " wtui\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\n        1 dev\n  ▾ notes\n? shortcuts"
 	if got := plain(m); got != want {
 		t.Errorf("with the cursor on notes, the view is:\n%s\nwant:\n%s", got, want)
 	}
@@ -851,7 +856,7 @@ func TestTheTreeScrollsInAShortPane(t *testing.T) {
 	f.normal.showErr = errors.New("can't find session")
 	m, cmd := update(t, m, enter)
 	m, _ = update(t, m, run(t, cmd))
-	want = " wtui\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\ncan't find session"
+	want = " wtui\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\ncan't find session\n? shortcuts"
 	if got := plain(m); got != want {
 		t.Errorf("with a status line, the view is:\n%s\nwant:\n%s", got, want)
 	}

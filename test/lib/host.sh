@@ -29,7 +29,8 @@
 #                                until its host is that wide too
 #   screen <t>                   what <t> shows
 #   sidebar_text <t>             what <t>'s sidebar shows, without trailing
-#                                spaces or blank lines
+#                                spaces or blank lines, or its last line
+#                                (? shortcuts)
 #   sidebar_shows <t> <text>     whether that's <text>
 #   cursor_row <t>               the sidebar's row in reverse video, without
 #                                its styles: its cursor, while it has focus
@@ -173,10 +174,11 @@ host_width_is() { [ "$(host "$1" display-message -p '#{window_width}')" = "$2" ]
 
 screen() { term capture-pane -p -t "=$1:"; }
 
-# awk drops trailing spaces, and blank lines unless something follows them.
+# awk drops trailing spaces, the footer, and blank lines unless something
+# follows them.
 sidebar_text() {
   host "$1" capture-pane -p -t "$(sidebar_pane "$1")" |
-    awk '{ sub(/ +$/, "") } $0 == "" { blank++; next } { while (blank) { print ""; blank-- } print }'
+    awk '{ sub(/ +$/, "") } $0 == "? shortcuts" { next } $0 == "" { blank++; next } { while (blank) { print ""; blank-- } print }'
 }
 sidebar_shows() { [ "$(sidebar_text "$1")" = "$2" ]; }
 

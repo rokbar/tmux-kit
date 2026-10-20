@@ -434,6 +434,36 @@ func (h *Host) PrefixRight() error {
 	return h.run("select-pane", "-t", h.right, ";", "send-keys", "-t", h.right, "C-b")
 }
 
+// Popup opens p in a popup over the whole host, centred, width by height
+// cells, or as much of that as fits in the terminal, and returns once its
+// program has exited, whatever its exit status. Focus stays where it was.
+func (h *Host) Popup(p tmux.Popup, width, height int) error {
+	out, err := h.tmux("display-message", "-p", "#{client_width} #{client_height}").Output()
+	if err != nil {
+		return fmt.Errorf("can't tell the terminal's size: %w", err)
+	}
+	var cols, rows int
+	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
+		return fmt.Errorf("can't tell the terminal's size from %q", out)
+	}
+	args := []string{"display-popup", "-E", "-w", strconv.Itoa(min(width, cols)), "-h", strconv.Itoa(min(height, rows)), "-T", p.Title}
+	if p.Dir != "" {
+		args = append(args, "-d", p.Dir)
+	}
+	for _, kv := range p.Env {
+		args = append(args, "-e", kv)
+	}
+	cmd := h.tmux(append(append(args, "--"), p.Command...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	// display-popup exits with its program's status, which isn't tmux
+	// failing: then it says nothing.
+	if err := cmd.Run(); err != nil && strings.TrimSpace(stderr.String()) != "" {
+		return errors.New(strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // Close ends the host: its server, then its folder. The sessions on the
 // normal server live on.
 func (h *Host) Close() error {

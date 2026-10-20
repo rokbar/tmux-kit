@@ -37,10 +37,13 @@ var actions = []action{
 	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
 	{[]string{"e"}, "the editor on the worktree or folder", on(folderOf, Model.edit)},
 	{[]string{"o"}, "the dev URL in the browser", on(devURLOf, Model.browse)},
+	{[]string{"n"}, "the picker, from the worktree: open a branch, or make one", on(gitWorktreeOf, Model.pick)},
+	{[]string{"i"}, "details of the worktree: branch, changes, commits, upstream, dev URL", on(gitWorktreeOf, Model.details)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
 	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
 	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},
+	{[]string{"?"}, "every shortcut", Model.shortcuts},
 	{[]string{"q"}, "close wtui", Model.quit},
 }
 

@@ -13,6 +13,13 @@
 //	wtui press <key>                   has the sidebar press a held key, for the
 //	                                   host's bindings
 //	wtui popup                         the old popup, kept until the host replaces it
+//
+// and the sidebar runs its dialogs in popups:
+//
+//	wtui details <folder> [<branch> [<dev URL>]]
+//	                                   a worktree's details (i)
+//	wtui pick                          the picker, in this folder (n)
+//	wtui shortcuts <key>               every shortcut, where <key> is the wtui key (?)
 package main
 
 import (
@@ -55,6 +62,12 @@ func main() {
 		err = host.Press(flag.Arg(1))
 	case "popup":
 		err = runPopup()
+	case "details":
+		err = runDetails(flag.Arg(1), flag.Arg(2), flag.Arg(3))
+	case "pick":
+		err = runPick()
+	case "shortcuts":
+		err = runShortcuts(flag.Arg(1))
 	default:
 		fmt.Fprintln(os.Stderr, "usage: wtui [--version]")
 		os.Exit(2)
@@ -97,7 +110,7 @@ func runSidebar(socket string) error {
 	watch := normal.Watch()
 	c := sidebar.Clients{
 		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
-		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{},
+		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe,
 	}
 	var m tea.Model = sidebar.New(c, key)
 	// The sidebar starts with focus, as the host gives it, unless it starts

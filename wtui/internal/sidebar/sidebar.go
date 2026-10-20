@@ -31,6 +31,9 @@ type Host interface {
 	// Hide hides the sidebar, giving the right side the whole window and
 	// focus, until the sidebar gets focus again.
 	Hide() error
+	// Popup opens p in a popup over the whole host, width by height cells,
+	// or as much as fits, and returns once it has closed.
+	Popup(p tmux.Popup, width, height int) error
 }
 
 // Normal is what the sidebar asks of the normal tmux server.
@@ -51,6 +54,9 @@ type Normal interface {
 	// before, else the most recent other one), and returns its id; with no
 	// other session, tmux.ErrNoOtherSession.
 	ShowLast() (string, error)
+	// Popup opens p in a popup on the nested client, over the right side,
+	// and returns once it has closed.
+	Popup(p tmux.Popup) error
 }
 
 // Repos finds which git repo a folder is in.
@@ -79,6 +85,9 @@ type Clients struct {
 	// Editor opens folders in the user's editor, and Browser dev URLs in the
 	// browser.
 	Editor, Browser Opener
+	// Wtui is the wtui program, whose subcommands the dialogs are (see
+	// dialog).
+	Wtui string
 }
 
 // Model is the sidebar.
@@ -354,6 +363,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case acted:
 		m.status.action = errText(msg.err)
 		return m.afterAction()
+	case dialogClosed:
+		return m.withClosed(msg)
 	case hostDone:
 		m.status.action = errText(msg.err)
 	case cleared:
