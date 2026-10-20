@@ -19,7 +19,7 @@ import (
 // and a row in none (a non-git project, a session in no worktree wt lists)
 // isn't in git as far as wt says: both get a hint.
 func gitWorktreeOf(n *tree.Node) (*wt.Worktree, hint) {
-	w := worktreeOf(n)
+	w := n.InWorktree()
 	switch {
 	case w == nil:
 		return nil, hint(sessionOf(n).Name + " isn't in a git repo")

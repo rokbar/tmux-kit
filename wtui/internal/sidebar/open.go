@@ -15,31 +15,11 @@ type Opener interface {
 	Open(string) error
 }
 
-// worktreeOf is the main clone or worktree that row n is in, as wt lists it:
-// a git project's row is its main clone's. Nil for a row in none (e.g. in a
-// non-git project).
-func worktreeOf(n *tree.Node) *wt.Worktree {
-	if n.ID.Kind == tree.Project {
-		for _, c := range n.Children {
-			if c.Worktree != nil && c.Worktree.Path == n.Path {
-				return c.Worktree
-			}
-		}
-		return nil
-	}
-	for ; n.ID.Kind != tree.Project; n = n.Parent {
-		if n.Worktree != nil {
-			return n.Worktree
-		}
-	}
-	return nil
-}
-
 // folderOf is the folder of row n: that of the worktree it's in, else its
 // own (a project's, or a session's start folder; a window's session's). In a
 // missing worktree, there's none.
 func folderOf(n *tree.Node) (string, hint) {
-	w := worktreeOf(n)
+	w := n.InWorktree()
 	switch {
 	case w == nil:
 		return sessionOf(n).Path, ""
@@ -52,7 +32,7 @@ func folderOf(n *tree.Node) (string, hint) {
 // devURLOf is the dev URL of the worktree row n is in, if it has one. A row
 // in none (e.g. in a non-git project) has none.
 func devURLOf(n *tree.Node) (string, hint) {
-	w := worktreeOf(n)
+	w := n.InWorktree()
 	switch {
 	case w == nil:
 		return "", hint(sessionOf(n).Name + " has no dev URL")

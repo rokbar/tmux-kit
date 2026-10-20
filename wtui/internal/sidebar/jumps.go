@@ -50,8 +50,8 @@ func (m Model) sibling(by int) (Model, tea.Cmd) {
 		return m, m.show(s.Session, "")
 	}
 	project := "this project"
-	for p := m.tree.Node(tree.ID{Kind: tree.Session, Key: m.active}); p != nil; p = p.Parent {
-		project = p.Name
+	if n := m.tree.Node(tree.ID{Kind: tree.Session, Key: m.active}); n != nil {
+		project = n.Project().Name
 	}
 	return m, m.goNowhere(hint("no other session in " + project))
 }

@@ -55,7 +55,7 @@ func (m Model) killQuestion(n *tree.Node) string {
 		lines = append(lines, fmt.Sprintf("Kill session %s and its %d windows?", s.Name, len(windows)))
 	}
 	lines = append(lines, m.endingAgents("it", s.Session, windows)...)
-	if w := worktreeOf(s); len(windows) == len(s.Children) && w != nil && !w.MainClone {
+	if w := s.InWorktree(); len(windows) == len(s.Children) && w != nil && !w.MainClone {
 		lines = append(lines, "The worktree "+filepath.Base(w.Path)+" stays.")
 	}
 	return strings.Join(lines, "\n")

@@ -23,18 +23,14 @@ type removable struct {
 // row stands for too, and a row in no worktree (a non-git project, a
 // session in no worktree wt lists) has nothing to remove: both get a hint.
 func removableOf(n *tree.Node) (removable, hint) {
-	w := worktreeOf(n)
+	w := n.InWorktree()
 	switch {
 	case w == nil:
 		return removable{}, hint(sessionOf(n).Name + " isn't in a git repo")
 	case w.MainClone:
 		return removable{}, hint(filepath.Base(w.Path) + " is the main clone, not a worktree")
 	}
-	p := n
-	for p.Parent != nil {
-		p = p.Parent
-	}
-	return removable{p.Path, w}, ""
+	return removable{n.Project().Path, w}, ""
 }
 
 // remove removes r's worktree: the remove dialog, which asks first, then

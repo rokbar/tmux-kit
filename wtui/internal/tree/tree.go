@@ -74,6 +74,34 @@ type Node struct {
 	Number int
 }
 
+// Project is the project n is in: n itself for a project's row.
+func (n *Node) Project() *Node {
+	for n.Parent != nil {
+		n = n.Parent
+	}
+	return n
+}
+
+// InWorktree is the main clone or worktree n is in, as wt lists it: a git
+// project's row is its main clone's. Nil for a row in none (e.g. in a
+// non-git project).
+func (n *Node) InWorktree() *wt.Worktree {
+	if n.ID.Kind == Project {
+		for _, c := range n.Children {
+			if c.Worktree != nil && c.Worktree.Path == n.Path {
+				return c.Worktree
+			}
+		}
+		return nil
+	}
+	for ; n.ID.Kind != Project; n = n.Parent {
+		if n.Worktree != nil {
+			return n.Worktree
+		}
+	}
+	return nil
+}
+
 // Tree is the sidebar's tree. It doesn't change once built.
 type Tree struct {
 	Projects []*Node
@@ -304,11 +332,7 @@ func (t *Tree) Next(session string, by int) *Node {
 	if n == nil {
 		return nil
 	}
-	project := n
-	for project.Parent != nil {
-		project = project.Parent
-	}
-	in := sessionsIn([]*Node{project})
+	in := sessionsIn([]*Node{n.Project()})
 	if len(in) < 2 {
 		return nil
 	}
