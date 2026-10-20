@@ -2,6 +2,7 @@
 # t -d [name] starts the folder's session, detached, if it's missing and prints
 # its name. It never switches or attaches a client, inside tmux or out. Names
 # are t's: the folder or the given name, minus a leading dot, . and : -> _.
+# Plain t, inside tmux, switches the client TMUX_KIT_CLIENT names, if set.
 set -euo pipefail
 # shellcheck source=test/lib/sandbox.sh
 . "$(dirname "$0")/lib/sandbox.sh"
@@ -111,5 +112,16 @@ wait_until "t outside tmux to attach to outside" clients_are "fresh
 outside"
 tmux detach-client -s =outside
 exited "t outside, outside tmux"
+
+# In a popup that names its client in TMUX_KIT_CLIENT (wtui's), t switches
+# that client: not the one t runs from, nor tmux's own pick in a popup.
+tmux new-session -d -s term2 -c "$tmp" env -u TMUX tmux attach -t =other
+wait_until "a second client, on other" clients_are "fresh
+other"
+other_tty="$(tmux list-clients -F '#{client_tty} #{client_session}' | awk '$2 == "other" { print $1 }')"
+run_in fresh env TMUX_KIT_CLIENT="$other_tty" "$kit/bin/t" popped
+exited "t popped, with TMUX_KIT_CLIENT set"
+[ "$(clients)" = "fresh
+popped" ] || fail "t with TMUX_KIT_CLIENT naming other's client left the clients on: $(clients)"
 
 echo "ok: t-detached"

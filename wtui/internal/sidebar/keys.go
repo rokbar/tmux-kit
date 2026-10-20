@@ -43,6 +43,7 @@ var actions = []action{
 	{[]string{"x"}, "remove the worktree and end its sessions, after asking", on(removableOf, Model.remove)},
 	{[]string{"d"}, "kill the session or window, after asking (its worktree stays)", on(killable, Model.kill)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
+	{[]string{"p"}, "open a project from the projects root, over the right side", Model.openProject},
 	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
 	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},

@@ -1,8 +1,8 @@
 // Package dialog is wtui's dialogs: short programs, wtui subcommands, that
 // the sidebar runs in popups, over the right side or the whole host. It has
-// the dialogs themselves (details, a page of text such as the shortcuts),
-// and how a dialog tells the sidebar what its status line should say once
-// the popup has closed (Open and Say).
+// the dialogs themselves (details, a page of text such as the shortcuts, a
+// choice in fzf), and how a dialog tells the sidebar what its status line
+// should say once the popup has closed (Open and Say).
 package dialog
 
 import (

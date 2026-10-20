@@ -21,6 +21,8 @@
 //	wtui pick                          the picker, in this folder (n)
 //	wtui remove <path> <question>      asks <question>, then has wt remove the
 //	                                   worktree at <path>; run in its main clone (x)
+//	wtui project [-d] <root>           open a project from the projects root (p);
+//	                                   -d: on the host, with no nested client
 //	wtui shortcuts <key>               every shortcut, where <key> is the wtui key (?)
 //	wtui -S <socket> kill <session>[:<window>] <question>
 //	                                   asks <question>, then kills that session
@@ -73,6 +75,8 @@ func main() {
 		err = runPick()
 	case "remove":
 		err = runRemove(flag.Arg(1), flag.Arg(2))
+	case "project":
+		err = runProject(flag.Args()[1:])
 	case "shortcuts":
 		err = runShortcuts(flag.Arg(1))
 	case "kill":
@@ -120,6 +124,7 @@ func runSidebar(socket string) error {
 	c := sidebar.Clients{
 		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
 		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe, Socket: socket,
+		ProjectsRoot: normal.ProjectsRoot(),
 	}
 	var m tea.Model = sidebar.New(c, key)
 	// The sidebar starts with focus, as the host gives it, unless it starts

@@ -35,6 +35,10 @@ const DefaultKey = `C-\`
 // @wtui-width option isn't set.
 const DefaultWidth = 30
 
+// DefaultProjectsRoot is the projects root while the normal server's
+// @wtui-projects-root option isn't set.
+const DefaultProjectsRoot = "~/Projects"
+
 // Client is wtui's client for the normal server.
 type Client struct {
 	// Socket is the normal server's socket, which every command reaches it
@@ -157,6 +161,23 @@ func (c *Client) Width() int {
 		return n
 	}
 	return DefaultWidth
+}
+
+// ProjectsRoot is the projects root, whose folders wtui offers to open as
+// projects: the normal server's @wtui-projects-root option, or
+// DefaultProjectsRoot while it isn't set (or there's no server), with a
+// leading ~ standing for HOME.
+func (c *Client) ProjectsRoot() string {
+	root, err := c.output("show-options", "-gqv", "@wtui-projects-root")
+	if err != nil || root == "" {
+		root = DefaultProjectsRoot
+	}
+	rest, ok := strings.CutPrefix(root, "~")
+	home, err := os.UserHomeDir()
+	if !ok || err != nil || rest != "" && !strings.HasPrefix(rest, "/") {
+		return root // ~user isn't this user's home
+	}
+	return home + rest
 }
 
 // Editor is the editor's command line, as the normal server's global

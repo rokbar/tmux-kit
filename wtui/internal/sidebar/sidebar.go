@@ -38,6 +38,10 @@ type Host interface {
 	// Popup opens p in a popup over the whole host, width by height cells,
 	// or as much as fits, and returns once it has closed.
 	Popup(p tmux.Popup, width, height int) error
+	// PopupRight opens p in a popup over the right side, on the host, and
+	// returns once it has closed: for while the right side shows no session,
+	// so there's no nested client to open one on.
+	PopupRight(p tmux.Popup) error
 }
 
 // Normal is what the sidebar asks of the normal tmux server.
@@ -104,6 +108,8 @@ type Clients struct {
 	// Socket is the normal server's socket, which a dialog that talks to it
 	// reaches it by (wtui -S).
 	Socket string
+	// ProjectsRoot is the projects root, whose folders p offers to open.
+	ProjectsRoot string
 }
 
 // Model is the sidebar.

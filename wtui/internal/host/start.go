@@ -1,16 +1,13 @@
 package host
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/repo"
+	"github.com/rokbar/tmux-kit/wtui/internal/tfolder"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
 
@@ -121,37 +118,9 @@ func launchSession(exe string, normal *tmux.Client) (string, error) {
 	if session := Starting(snap, folder); session != "" {
 		return session, nil
 	}
-	name, err := startSession(exe)
+	name, err := tfolder.New(exe).Start(dir) // the server too, if it isn't running
 	if err != nil {
 		return "", fmt.Errorf("there's no session to show, and t can't start one here: %w", err)
 	}
 	return "=" + name, nil
-}
-
-// startSession has t start the session of the folder wtui runs in, without
-// attaching to it (t -d), which starts the server too if it isn't running,
-// and is the session's name. The t is the one next to wtui (exe), as
-// install.sh puts them, else the one on PATH.
-func startSession(exe string) (string, error) {
-	bin := filepath.Join(filepath.Dir(exe), "t")
-	if info, err := os.Stat(bin); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		if bin, err = exec.LookPath("t"); err != nil {
-			return "", fmt.Errorf("t not found next to wtui (in %s) or on PATH", filepath.Dir(exe))
-		}
-	}
-	cmd := exec.Command(bin, "-d")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if msg := strings.TrimSpace(stderr.String()); err != nil && msg != "" {
-		return "", errors.New(msg)
-	}
-	if err != nil {
-		return "", err
-	}
-	name := strings.TrimSpace(string(out))
-	if name == "" {
-		return "", errors.New("t -d printed no session name")
-	}
-	return name, nil
 }
