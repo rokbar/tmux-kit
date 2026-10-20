@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -35,20 +37,19 @@ func runPick() error {
 	return nil
 }
 
-// runRemove is the remove dialog of the worktree removal names (see
-// dialog.Removal.Arg), run in its main clone: what wt said, or its failure,
-// is for the status line.
-func runRemove(removal string) error {
-	r, err := dialog.ParseRemoval(removal)
-	if err != nil {
-		return err
+// runRemove is the remove dialog of the worktree at path, run in its main
+// clone: it asks question, then has wt remove it. What wt said, or its
+// failure, is for the status line.
+func runRemove(path, question string) error {
+	if path == "" || question == "" {
+		return errors.New("usage: wtui remove <path> <question>")
 	}
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	final, err := tea.NewProgram(dialog.Remove(wt.New(exe), dir, r)).Run()
+	final, err := tea.NewProgram(dialog.Remove(wt.New(exe), dir, path, strings.Split(question, "\n"))).Run()
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"cmp"
+	"fmt"
 	"slices"
 
 	tea "charm.land/bubbletea/v2"
@@ -90,3 +92,31 @@ func agentMark(state tmux.AgentState, cursor bool) string {
 	}
 	return styled(" ", row...) + styled(a.mark, append(row, a.style...)...)
 }
+
+// endingAgents are the lines of a dialog's question (d's, x's) that name the
+// agents ending with windows, rows of session (an id): a line saying the
+// agents in in (e.g. "it", a session's name) end too, then one line for
+// each, by window, most urgent first: "  <index> <window>: <state>". A
+// linked window's agent is named once, in session. None if there are none.
+func (m Model) endingAgents(in, session string, windows []*tree.Node) []string {
+	var agents []string
+	for _, w := range windows {
+		here := slices.DeleteFunc(slices.Clone(m.src.Snapshot.Agents), func(a tmux.Agent) bool {
+			return a.Session != session || a.Window != w.Window
+		})
+		slices.SortFunc(here, func(a, b tmux.Agent) int { return cmp.Or(cmp.Compare(b.State, a.State), cmp.Compare(a.Pane, b.Pane)) })
+		for _, a := range here {
+			agents = append(agents, fmt.Sprintf("  %d %s: %s", w.Index, w.Name, stateNames[a.State]))
+		}
+	}
+	switch len(agents) {
+	case 0:
+		return nil
+	case 1:
+		return append([]string{"The agent in " + in + " ends too:"}, agents...)
+	}
+	return append([]string{"The agents in " + in + " end too:"}, agents...)
+}
+
+// stateNames are the agent states, as the dialogs name them.
+var stateNames = map[tmux.AgentState]string{tmux.NeedsYou: "needs you", tmux.Working: "working", tmux.Done: "done"}

@@ -36,8 +36,8 @@ wait_until "the sidebar to show fix's sessions" eval 'has review && has notes &&
 shows() { case "$(screen t1)" in *"$1"*) ;; *) return 1 ;; esac; }
 
 type_in t1 x
-wait_until "x to ask about removing api--fix" shows "remove api--fix and end sessions fix and review?"
-shows "the agent in review ends too: working in claude" || fail "the dialog doesn't name review's agent:
+wait_until "x to ask about removing api--fix" shows "Remove worktree api--fix and end sessions fix and review?"
+shows "The agent in review ends too:" && shows "  0 claude: working" || fail "the dialog doesn't name review's agent:
 $(screen t1)"
 focus_on t1 right || fail "with the dialog open, focus is on the $(focus t1)"
 

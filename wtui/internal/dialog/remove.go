@@ -1,10 +1,8 @@
 package dialog
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,113 +18,30 @@ type Remover interface {
 	Remove(dir, path string, force bool) (string, error)
 }
 
-// Removal is a worktree to remove, and what ends with it, for the remove
-// dialog to ask about.
-type Removal struct {
-	// Path is the worktree's folder.
-	Path string `json:"path"`
-	// Missing is whether the folder is gone already, so that removing the
-	// worktree only unregisters it.
-	Missing bool `json:"missing,omitempty"`
-	// Sessions are those that end with it: every session started in its
-	// folder or a folder inside it, as wt ends them.
-	Sessions []Ending `json:"sessions,omitempty"`
-}
-
-// Ending is a session that ends, by name, and the agents in it.
-type Ending struct {
-	Session string        `json:"session"`
-	Agents  []EndingAgent `json:"agents,omitempty"`
-}
-
-// EndingAgent is an agent that ends with its session: the name of its
-// window, and its agent state as the sidebar says it (working, needs you,
-// done).
-type EndingAgent struct {
-	Window string `json:"window"`
-	State  string `json:"state"`
-}
-
-// Arg is r as the remove dialog's argument, for ParseRemoval.
-func (r Removal) Arg() string {
-	b, _ := json.Marshal(r) // only strings, a bool and slices of them: it can't fail
-	return string(b)
-}
-
-// ParseRemoval is the Removal that arg, as Arg wrote it, is.
-func ParseRemoval(arg string) (Removal, error) {
-	var r Removal
-	if err := json.Unmarshal([]byte(arg), &r); err != nil || r.Path == "" {
-		return Removal{}, fmt.Errorf("not a worktree to remove: %q", arg)
-	}
-	return r, nil
-}
-
-// question is what the dialog asks about removing r: whether to remove the
-// worktree, ending its sessions, and what else that does.
-func (r Removal) question() []string {
-	name := filepath.Base(r.Path)
-	var sessions []string
-	for _, s := range r.Sessions {
-		sessions = append(sessions, s.Session)
-	}
-	var lines []string
-	switch len(sessions) {
-	case 0:
-		lines = append(lines, "remove "+name+" (no session)?")
-	case 1:
-		lines = append(lines, "remove "+name+" and end session "+sessions[0]+"?")
-	default:
-		lines = append(lines, "remove "+name+" and end sessions "+and(sessions)+"?")
-	}
-	if r.Missing {
-		lines = append(lines, "its folder is gone, so removing it only unregisters it")
-	}
-	for _, s := range r.Sessions {
-		var agents []string
-		for _, a := range s.Agents {
-			agents = append(agents, a.State+" in "+a.Window)
-		}
-		switch len(agents) {
-		case 0:
-		case 1:
-			lines = append(lines, "the agent in "+s.Session+" ends too: "+agents[0])
-		default:
-			lines = append(lines, "the agents in "+s.Session+" end too: "+strings.Join(agents, ", "))
-		}
-	}
-	return lines
-}
-
-// and is names as a list in a sentence: "a, b and c".
-func and(names []string) string {
-	last := len(names) - 1
-	return strings.Join(names[:last], ", ") + " and " + names[last]
-}
-
-// Remove is the remove dialog: it asks whether to remove the worktree r is,
-// and on y has wt remove it, running in dir (its main clone). If wt refuses
-// for safety, it shows wt's reasons and asks whether to force; any other
-// failure it shows until a key closes it. n, q, esc and ctrl+c cancel, but
-// not while wt runs. What wt said,
-// or its failure, is what the dialog says once it has closed (Said).
-func Remove(w Remover, dir string, r Removal) Removing {
-	return Removing{wt: w, dir: dir, removal: r}
+// Remove is the remove dialog of the worktree at path: it asks question,
+// its lines (see Ask), and on y has wt remove the worktree, running in dir
+// (its main clone). If wt refuses for safety, it shows wt's reasons and asks
+// whether to force; any other failure it shows until a key closes it. n, q,
+// esc and ctrl+c cancel, but not while wt runs. What wt said, or its
+// failure, is what the dialog says once it has closed (Said).
+func Remove(w Remover, dir, path string, question []string) Removing {
+	return Removing{wt: w, dir: dir, path: path, question: question, ask: Ask(question, "remove")}
 }
 
 // Removing is the remove dialog (see Remove).
 type Removing struct {
-	wt      Remover
-	dir     string
-	removal Removal
-	mode    removeMode
-	forced  bool   // whether the removal running, or last run, forces it
-	refusal string // why wt refused to remove the worktree, once it has
-	top     int    // the first line of the refusal on screen, when it doesn't all fit
-	failure string // wt's failure, once it has failed otherwise
-	said    string
-	width   int
-	height  int
+	wt        Remover
+	dir, path string
+	question  []string
+	ask       tea.Model // the question, until it's answered
+	mode      removeMode
+	forced    bool   // whether the removal running, or last run, forces it
+	refusal   string // why wt refused to remove the worktree, once it has
+	top       int    // the first line of the refusal on screen, when it doesn't all fit
+	failure   string // wt's failure, once it has failed otherwise
+	said      string
+	width     int
+	height    int
 }
 
 // removeMode is what the remove dialog shows, and so what keys do.
@@ -155,44 +70,60 @@ func (d Removing) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width, d.height = msg.Width, msg.Height
+		d.ask, _ = d.ask.Update(msg)
 	case removed:
 		return d.withRemoved(msg)
 	case tea.KeyPressMsg:
-		return d.press(msg.String())
+		return d.press(msg)
 	}
 	return d, nil
 }
 
 // press is the dialog once key is pressed. While wt runs, keys do nothing:
 // stopping it halfway would leave the worktree half removed.
-func (d Removing) press(key string) (tea.Model, tea.Cmd) {
+func (d Removing) press(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch d.mode {
+	case askingMode:
+		var answer tea.Cmd
+		d.ask, answer = d.ask.Update(key)
+		switch {
+		case !closes(answer):
+			return d, answer
+		case Yes(d.ask):
+			return d.remove(false)
+		}
+		return d, tea.Quit
 	case removingMode:
 		return d, nil
 	case failedMode:
 		return d, tea.Quit
 	}
-	switch key {
+	switch key.String() {
 	case "y":
-		return d.remove(d.mode == refusedMode)
+		return d.remove(true)
 	case "n", "q", "esc", "ctrl+c": // raw mode turns ctrl+c into a key
 		return d, tea.Quit
-	}
-	if d.mode == refusedMode {
-		switch key {
-		case "up", "k":
-			d = d.scroll(-1)
-		case "down", "j":
-			d = d.scroll(1)
-		}
+	case "up", "k":
+		d = d.scroll(-1)
+	case "down", "j":
+		d = d.scroll(1)
 	}
 	return d, nil
+}
+
+// closes says whether cmd closes a dialog: what Ask does once answered.
+func closes(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
 }
 
 // remove has wt remove the worktree, forcing it if force.
 func (d Removing) remove(force bool) (tea.Model, tea.Cmd) {
 	d.mode, d.forced = removingMode, force
-	w, dir, path := d.wt, d.dir, d.removal.Path
+	w, dir, path := d.wt, d.dir, d.path
 	return d, func() tea.Msg {
 		said, err := w.Remove(dir, path, force)
 		return removed{said, err}
@@ -215,9 +146,9 @@ func (d Removing) withRemoved(r removed) (tea.Model, tea.Cmd) {
 	return d, nil
 }
 
-// The dialog's last lines, at the bottom of the popup.
+// What the dialog shows under what it says, after a blank line, as Ask
+// shows its keys.
 var (
-	askingKeys  = []string{"y: remove   n/q/esc: cancel"}
 	removingNow = []string{"removing…"}
 	forceKeys   = []string{"force?", "y: force   n/q/esc: cancel"}
 	failedKeys  = []string{closing}
@@ -225,8 +156,14 @@ var (
 
 func (d Removing) View() tea.View {
 	switch d.mode {
+	case askingMode:
+		return d.ask.View()
 	case removingMode:
-		return d.prompt(d.question(), removingNow)
+		var lines []string
+		for _, l := range d.question {
+			lines = append(lines, d.wrap(l, "")...)
+		}
+		return d.prompt(lines, removingNow)
 	case refusedMode:
 		lines, fit := d.reasons()
 		if fit < len(lines) {
@@ -235,19 +172,8 @@ func (d Removing) View() tea.View {
 				fmt.Sprintf("↑/↓ j/k: scroll (lines %d–%d of %d)", top+1, top+fit, len(lines)))
 		}
 		return d.prompt(lines, forceKeys)
-	case failedMode:
-		return d.prompt(d.wrap(d.failure), failedKeys)
 	}
-	return d.prompt(d.question(), askingKeys)
-}
-
-// question is the question's lines, wrapped to the popup.
-func (d Removing) question() []string {
-	var lines []string
-	for _, l := range d.removal.question() {
-		lines = append(lines, d.wrap(l)...)
-	}
-	return lines
+	return d.prompt(d.wrap(d.failure, "/"), failedKeys)
 }
 
 // reasons is wt's reasons for refusing, wrapped to the popup, and how many
@@ -255,7 +181,7 @@ func (d Removing) question() []string {
 // them, or, if they don't all fit, one less than that, for a line saying
 // which are shown.
 func (d Removing) reasons() (lines []string, fit int) {
-	lines = d.wrap(d.refusal)
+	lines = d.wrap(d.refusal, "/")
 	room := d.height - len(forceKeys) - 1
 	if d.height <= 0 || len(lines) <= room {
 		return lines, len(lines)
@@ -272,29 +198,27 @@ func (d Removing) scroll(by int) Removing {
 }
 
 // wrap is text's lines, wrapped to the popup less a column either side,
-// once its width is known, breaking paths at their slashes rather than
-// anywhere.
-func (d Removing) wrap(text string) []string {
+// once its width is known, breaking words at breakpoints (e.g. "/", for
+// paths) as well as anywhere they must.
+func (d Removing) wrap(text, breakpoints string) []string {
 	if d.width > 2 {
-		text = ansi.Wrap(text, d.width-2, "/")
+		text = ansi.Wrap(text, d.width-2, breakpoints)
 	}
 	return strings.Split(text, "\n")
 }
 
-// prompt is the dialog's view: lines, then a blank line if there's room,
-// then last at the bottom of the popup, its last line dim, each line with a
-// column either side.
+// prompt is the dialog's view, laid out as Ask's: lines, then a blank line
+// and last, its last line dim, each line with a column either side. In a
+// short popup, lines are cut so that last still shows.
 func (d Removing) prompt(lines, last []string) tea.View {
 	if d.height > 0 {
-		lines = AtMost(max(0, d.height-len(last)), lines)
+		lines = AtMost(max(0, d.height-len(last)-1), lines)
 	}
-	var shown []string
+	shown := make([]string, 0, len(lines)+len(last)+1)
 	for _, l := range lines {
 		shown = append(shown, " "+OneLine(l, d.width-2))
 	}
-	for len(shown) < d.height-len(last) || d.height <= 0 && len(shown) < len(lines)+1 {
-		shown = append(shown, "")
-	}
+	shown = append(shown, "")
 	for i, l := range last {
 		l = OneLine(l, d.width-2)
 		if i == len(last)-1 {

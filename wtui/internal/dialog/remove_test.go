@@ -3,7 +3,6 @@ package dialog_test
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -65,8 +64,7 @@ func key(name string) tea.KeyPressMsg {
 	case "ctrl+c":
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	}
-	r := []rune(name)[0]
-	return tea.KeyPressMsg{Code: r, Text: name}
+	return tea.KeyPressMsg{Code: []rune(name)[0], Text: name}
 }
 
 // quits says whether cmd closes the dialog.
@@ -78,14 +76,19 @@ func quits(cmd tea.Cmd) bool {
 	return ok
 }
 
-// login is removing api--fix-login, which ends session login.
-var login = dialog.Removal{Path: "/p/api--fix-login", Sessions: []dialog.Ending{{Session: "login"}}}
+// loginQuestion is the sidebar's question about removing api--fix-login.
+var loginQuestion = []string{
+	"Remove worktree api--fix-login and end session login?",
+	"The agent in login ends too:",
+	"  1 dev: working",
+}
 
-// asking is the remove dialog of r, removing through f in the main clone
-// /p/api, in a popup of width by height.
-func asking(t *testing.T, f *fakeWt, r dialog.Removal, width, height int) tea.Model {
+// removing is the remove dialog of api--fix-login, asking loginQuestion and
+// removing through f in the main clone /p/api, in a popup of width by
+// height.
+func removing(t *testing.T, f *fakeWt, width, height int) tea.Model {
 	t.Helper()
-	var m tea.Model = dialog.Remove(f, "/p/api", r)
+	var m tea.Model = dialog.Remove(f, "/p/api", "/p/api--fix-login", loginQuestion)
 	if cmd := m.Init(); cmd != nil {
 		t.Fatal("the remove dialog does something before it's answered")
 	}
@@ -93,10 +96,10 @@ func asking(t *testing.T, f *fakeWt, r dialog.Removal, width, height int) tea.Mo
 	return m
 }
 
-// answer presses keys in turn, delivering what each one's command reports
+// presses presses keys in turn, delivering what each one's command reports
 // unless it closes the dialog. It returns the dialog after the last key, and
 // whether that closed it.
-func answer(t *testing.T, m tea.Model, keys ...string) (tea.Model, bool) {
+func presses(t *testing.T, m tea.Model, keys ...string) (tea.Model, bool) {
 	t.Helper()
 	closed := false
 	for _, k := range keys {
@@ -118,77 +121,48 @@ func answer(t *testing.T, m tea.Model, keys ...string) (tea.Model, bool) {
 // said is what the remove dialog m says for the status line.
 func said(m tea.Model) string { return m.(dialog.Removing).Said() }
 
-// The dialog asks before it removes anything, naming the worktree, every
-// session that ends with it and the agents in those, by window and state. A
-// missing worktree only gets unregistered, which it says too.
-func TestRemoveAsksNamingEverySessionAndAgentItEnds(t *testing.T) {
-	for _, c := range []struct {
-		r    dialog.Removal
-		want string // the question's lines
-	}{
-		{dialog.Removal{Path: "/p/api--docs"}, " remove api--docs (no session)?"},
-		{login, " remove api--fix-login and end session login?"},
-		{
-			dialog.Removal{Path: "/p/api--fix-login", Sessions: []dialog.Ending{{Session: "login"}, {Session: "review"}, {Session: "web"}}},
-			" remove api--fix-login and end sessions login, review and web?",
-		},
-		{
-			dialog.Removal{Path: "/p/api--fix-login", Sessions: []dialog.Ending{
-				{Session: "login", Agents: []dialog.EndingAgent{{Window: "dev", State: "working"}, {Window: "shell", State: "needs you"}}},
-				{Session: "review", Agents: []dialog.EndingAgent{{Window: "claude", State: "done"}}},
-				{Session: "web"},
-			}},
-			" remove api--fix-login and end sessions login, review and web?\n" +
-				" the agents in login end too: working in dev, needs you in shell\n" +
-				" the agent in review ends too: done in claude",
-		},
-		{
-			dialog.Removal{Path: "/p/api--gone", Missing: true, Sessions: []dialog.Ending{{Session: "gone"}}},
-			" remove api--gone and end session gone?\n its folder is gone, so removing it only unregisters it",
-		},
-		{dialog.Removal{Path: "/p/api--gone", Missing: true}, " remove api--gone (no session)?\n its folder is gone, so removing it only unregisters it"},
-	} {
-		f := &fakeWt{}
-		m := asking(t, f, c.r, 70, 8)
-		want := c.want + strings.Repeat("\n", 7-strings.Count(c.want, "\n")) + " y: remove   n/q/esc: cancel"
-		if got := view(m); got != want {
-			t.Errorf("asking about %+v, the view is:\n%s\nwant:\n%s", c.r, got, want)
-		}
-		if len(f.removals) > 0 {
-			t.Errorf("asking about %s, it removed %q before it's answered", c.r.Path, f.removals)
-		}
+// The dialog asks its question before it removes anything, as Ask does,
+// with y to remove.
+func TestRemoveAsksFirst(t *testing.T) {
+	f := &fakeWt{}
+	m := removing(t, f, 70, 8)
+	want := " Remove worktree api--fix-login and end session login?\n The agent in login ends too:\n   1 dev: working\n\n y: remove   n/q/esc: cancel"
+	if got := view(m); got != want {
+		t.Errorf("view:\n%s\nwant:\n%s", got, want)
+	}
+	if len(f.removals) > 0 {
+		t.Errorf("it removed %q before it's answered", f.removals)
 	}
 }
 
 // y has wt remove the worktree, in the main clone, which closes the dialog:
-// what wt said is what it says for the status line. A missing worktree is
-// removed the same way: wt unregisters it.
+// what wt said is what it says for the status line.
 func TestYRemovesTheWorktreeAndSaysWhatWtSaid(t *testing.T) {
-	for _, r := range []dialog.Removal{login, {Path: "/p/api--gone", Missing: true}} {
-		f := &fakeWt{}
-		m, closed := answer(t, asking(t, f, r, 70, 8), "y")
-		if want := []string{"/p/api " + r.Path}; !slices.Equal(f.removals, want) {
-			t.Errorf("y removed %q, want %q", f.removals, want)
-		}
-		if !closed {
-			t.Errorf("after removing %s, the dialog is still open:\n%s", r.Path, view(m))
-		}
-		if got, want := said(m), "wt: removed "+r.Path; got != want {
-			t.Errorf("after removing %s, the dialog says %q, want %q", r.Path, got, want)
-		}
+	f := &fakeWt{}
+	m, closed := presses(t, removing(t, f, 70, 8), "y")
+	if want := []string{"/p/api /p/api--fix-login"}; !slices.Equal(f.removals, want) {
+		t.Errorf("y removed %q, want %q", f.removals, want)
+	}
+	if !closed {
+		t.Errorf("after removing, the dialog is still open:\n%s", view(m))
+	}
+	if got, want := said(m), "wt: removed /p/api--fix-login"; got != want {
+		t.Errorf("after removing, the dialog says %q, want %q", got, want)
 	}
 }
 
-// While wt runs, the dialog says so, and keys do nothing, ctrl+c included:
-// stopping wt halfway would leave the worktree half removed.
+// While wt runs, the dialog says so under the question, and keys do
+// nothing, ctrl+c included: stopping wt halfway would leave the worktree
+// half removed.
 func TestKeysDoNothingWhileWtRuns(t *testing.T) {
 	f := &fakeWt{}
-	m, cmd := update(t, asking(t, f, login, 70, 8), key("y"))
+	m, cmd := update(t, removing(t, f, 70, 8), key("y"))
 	if cmd == nil {
 		t.Fatal("y does nothing")
 	}
-	if got := view(m); !strings.HasSuffix(got, "\n removing…") || !strings.HasPrefix(got, " remove api--fix-login and end session login?\n") {
-		t.Errorf("while wt runs, the view is:\n%s", got)
+	want := " Remove worktree api--fix-login and end session login?\n The agent in login ends too:\n   1 dev: working\n\n removing…"
+	if got := view(m); got != want {
+		t.Errorf("while wt runs, the view is:\n%s\nwant:\n%s", got, want)
 	}
 	for _, k := range []string{"y", "n", "q", "esc", "ctrl+c"} {
 		if _, cmd := update(t, m, key(k)); cmd != nil {
@@ -206,18 +180,18 @@ func TestKeysDoNothingWhileWtRuns(t *testing.T) {
 func TestAnotherFailureShowsWtsMessageWithNoForceOffer(t *testing.T) {
 	locked := "wt: /p/api--fix-login is locked (git worktree unlock it first)"
 	f := &fakeWt{err: errors.New(locked)}
-	m, closed := answer(t, asking(t, f, login, 70, 6), "y")
+	m, closed := presses(t, removing(t, f, 70, 6), "y")
 	if closed {
 		t.Fatal("the dialog closed on wt's failure, before showing it")
 	}
-	want := " wt: /p/api--fix-login is locked (git worktree unlock it first)\n\n\n\n\n any key closes"
+	want := " wt: /p/api--fix-login is locked (git worktree unlock it first)\n\n any key closes"
 	if got := view(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
 	if got := said(m); got != locked {
 		t.Errorf("the dialog says %q, want wt's failure", got)
 	}
-	m, closed = answer(t, m, "y")
+	m, closed = presses(t, m, "y")
 	if !closed {
 		t.Error("y after the failure doesn't close the dialog")
 	}
@@ -237,18 +211,18 @@ const loginRefusal = "wt: not removing /p/api--fix-login:\nuncommitted changes:\
 // reasons and offers to force; forcing is a removal like any other.
 func TestSafetyRefusalOffersToForce(t *testing.T) {
 	f := &fakeWt{refusal: loginRefusal}
-	m, closed := answer(t, asking(t, f, login, 70, 10), "y")
+	m, closed := presses(t, removing(t, f, 70, 10), "y")
 	if closed {
 		t.Fatal("the dialog closed on the refusal")
 	}
-	want := " wt: not removing /p/api--fix-login:\n uncommitted changes:\n ?? wip.txt\n (wt rm -f to force)\n\n\n\n\n force?\n y: force   n/q/esc: cancel"
+	want := " wt: not removing /p/api--fix-login:\n uncommitted changes:\n ?? wip.txt\n (wt rm -f to force)\n\n force?\n y: force   n/q/esc: cancel"
 	if got := view(m); got != want {
 		t.Errorf("view:\n%s\nwant:\n%s", got, want)
 	}
 	if got := said(m); got != "" {
 		t.Errorf("before forcing, the dialog says %q, want nothing", got)
 	}
-	m, closed = answer(t, m, "y")
+	m, closed = presses(t, m, "y")
 	if want := []string{"/p/api /p/api--fix-login", "/p/api -f /p/api--fix-login"}; !slices.Equal(f.removals, want) {
 		t.Errorf("removed %q, want %q", f.removals, want)
 	}
@@ -260,9 +234,9 @@ func TestSafetyRefusalOffersToForce(t *testing.T) {
 // If forcing fails too, that's another failure: wt's message, no offer.
 func TestAFailedForceShowsWtsMessage(t *testing.T) {
 	f := &fakeWt{refusal: loginRefusal}
-	m, _ := answer(t, asking(t, f, login, 70, 10), "y")
+	m, _ := presses(t, removing(t, f, 70, 10), "y")
 	f.err = wtFailure{wt.ErrSafetyRefusal, "wt: still not removing it"}
-	m, closed := answer(t, m, "y")
+	m, closed := presses(t, m, "y")
 	if closed || !strings.HasPrefix(view(m), " wt: still not removing it\n") || strings.Contains(view(m), "force") {
 		t.Errorf("after forcing failed, closed = %v and the view is:\n%s", closed, view(m))
 	}
@@ -284,9 +258,9 @@ func TestCancellingRunsNothing(t *testing.T) {
 	} {
 		for _, k := range []string{"n", "q", "esc", "ctrl+c"} {
 			f := &fakeWt{refusal: loginRefusal}
-			m, _ := answer(t, asking(t, f, login, 70, 10), prompt.answers...)
+			m, _ := presses(t, removing(t, f, 70, 10), prompt.answers...)
 			before := view(m)
-			for _, other := range []string{"x", "enter", "r", "j"} {
+			for _, other := range []string{"x", "enter", "r", "j", "Y"} {
 				var cmd tea.Cmd
 				if m, cmd = update(t, m, key(other)); cmd != nil {
 					t.Errorf("%s at the %s prompt gives a command", other, prompt.name)
@@ -318,7 +292,7 @@ func TestALongSafetyRefusalScrolls(t *testing.T) {
 	}
 	refusal += "(wt rm -f to force)"
 	f := &fakeWt{refusal: refusal}
-	m, _ := answer(t, asking(t, f, login, 40, 12), "y")
+	m, _ := presses(t, removing(t, f, 40, 12), "y")
 	top := ` wt: not removing /p/api--fix-login:
  uncommitted changes:
  ?? new-00.txt
@@ -368,28 +342,25 @@ func TestALongSafetyRefusalScrolls(t *testing.T) {
 	if got := view(m); got != top {
 		t.Errorf("view after scrolling back up:\n%s\nwant:\n%s", got, top)
 	}
-	answer(t, m, "y")
+	presses(t, m, "y")
 	if want := []string{"/p/api /p/api--fix-login", "/p/api -f /p/api--fix-login"}; !slices.Equal(f.removals, want) {
 		t.Errorf("removed %q, want %q", f.removals, want)
 	}
 }
 
 // The popup would cut off what's past its right edge, so the dialog wraps
-// the question and wt's reasons, which name files and folders, to its width.
+// the question, and wt's reasons, which name files and folders, to its
+// width.
 func TestTheDialogWrapsToThePopup(t *testing.T) {
 	refusal := "wt: not removing /p/api--fix-login:\n" +
 		".env is a real file/dir, not a link to the main clone (gitignored, would be lost): merge into /p/api/.env\n" +
 		"(wt rm -f to force)"
-	r := dialog.Removal{Path: login.Path, Sessions: []dialog.Ending{
-		{Session: "login", Agents: []dialog.EndingAgent{{Window: "dev", State: "working"}, {Window: "shell", State: "needs you"}}},
-	}}
-	m := asking(t, &fakeWt{refusal: refusal}, r, 32, 30)
+	m := removing(t, &fakeWt{refusal: refusal}, 32, 30)
 	fitsWidth(t, view(m), 32)
-	question := "remove api--fix-login and end session login?the agents in login end too: working in dev, needs you in shell"
-	if got := squeezed(view(m)); got != squeezed(question+"y: remove   n/q/esc: cancel") {
+	if got := squeezed(view(m)); got != squeezed(strings.Join(loginQuestion, "")+"y: remove   n/q/esc: cancel") {
 		t.Errorf("the question lost or changed some words:\n%s", view(m))
 	}
-	m, _ = answer(t, m, "y")
+	m, _ = presses(t, m, "y")
 	fitsWidth(t, view(m), 32)
 	if got := squeezed(view(m)); got != squeezed(refusal+"force?y: force   n/q/esc: cancel") {
 		t.Errorf("the view lost or changed some of wt's reasons:\n%s", view(m))
@@ -408,21 +379,3 @@ func fitsWidth(t *testing.T, text string, width int) {
 
 // squeezed is text without its spaces and line breaks.
 func squeezed(text string) string { return strings.Join(strings.Fields(text), "") }
-
-// The sidebar gives the dialog its Removal as one argument, which the dialog
-// reads back as it was.
-func TestARemovalIsOneArgument(t *testing.T) {
-	r := dialog.Removal{Path: "/p/a b/api--fix", Missing: true, Sessions: []dialog.Ending{
-		{Session: "lo gin", Agents: []dialog.EndingAgent{{Window: "dev: 1", State: "needs you"}}},
-		{Session: "web"},
-	}}
-	got, err := dialog.ParseRemoval(r.Arg())
-	if err != nil || !reflect.DeepEqual(got, r) {
-		t.Errorf("ParseRemoval(%s) = %+v, %v; want %+v", r.Arg(), got, err, r)
-	}
-	for _, arg := range []string{"", "/p/api--fix", "{}", `{"path":`} {
-		if _, err := dialog.ParseRemoval(arg); err == nil {
-			t.Errorf("ParseRemoval(%q) took it", arg)
-		}
-	}
-}
