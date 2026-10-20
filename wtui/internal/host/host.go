@@ -261,17 +261,12 @@ func Sidebar(key string, width int, keys []Key) (*Host, error) {
 		return nil, err
 	}
 	h.sidebar = os.Getenv("TMUX_PANE")
-	out, err := h.tmux("list-panes", "-F", "#{pane_id}").Output()
-	if err != nil {
-		return nil, fmt.Errorf("can't list the host's panes: %w", err)
-	}
-	for _, id := range strings.Fields(string(out)) {
-		if id != h.sidebar {
-			h.right = id
-		}
+	var panes []string
+	if h.right, panes, err = h.otherPane(h.sidebar); err != nil {
+		return nil, err
 	}
 	if h.sidebar == "" || h.right == "" {
-		return nil, fmt.Errorf("the host has no right side (panes: %s)", strings.Join(strings.Fields(string(out)), " "))
+		return nil, fmt.Errorf("the host has no right side (panes: %s)", strings.Join(panes, " "))
 	}
 
 	hup := make(chan os.Signal, 1)
@@ -419,20 +414,31 @@ func (h *Host) FocusRight() error { return h.run("select-pane", "-t", h.right) }
 // FocusSidebar moves focus to the sidebar, which shows it if it's hidden.
 func (h *Host) FocusSidebar() error {
 	if h.sidebar == "" { // the right side's wrapper knows only its own pane
-		out, err := h.tmux("list-panes", "-F", "#{pane_id}").Output()
-		if err != nil {
-			return fmt.Errorf("can't list the host's panes: %w", err)
-		}
-		for _, id := range strings.Fields(string(out)) {
-			if id != h.right {
-				h.sidebar = id
-			}
+		var err error
+		if h.sidebar, _, err = h.otherPane(h.right); err != nil {
+			return err
 		}
 		if h.sidebar == "" {
 			return errors.New("the host has no sidebar")
 		}
 	}
 	return h.run("select-pane", "-t", h.sidebar)
+}
+
+// otherPane is the host's pane other than pane (an id), the other side's,
+// or "" if there's none, and the host's panes.
+func (h *Host) otherPane(pane string) (other string, panes []string, err error) {
+	out, err := h.tmux("list-panes", "-F", "#{pane_id}").Output()
+	if err != nil {
+		return "", nil, fmt.Errorf("can't list the host's panes: %w", err)
+	}
+	panes = strings.Fields(string(out))
+	for _, id := range panes {
+		if id != pane {
+			other = id
+		}
+	}
+	return other, panes, nil
 }
 
 // ThenFocusSidebar is command (words, run without a shell), then a tmux
@@ -459,15 +465,11 @@ func (h *Host) PrefixRight() error {
 // cells, or as much of that as fits in the terminal, and returns once its
 // program has exited, whatever its exit status. Focus stays where it was.
 func (h *Host) Popup(p tmux.Popup, width, height int) error {
-	out, err := h.tmux("display-message", "-p", "#{client_width} #{client_height}").Output()
+	cols, rows, err := h.size("the terminal", "#{client_width} #{client_height}")
 	if err != nil {
-		return fmt.Errorf("can't tell the terminal's size: %w", err)
+		return err
 	}
-	var cols, rows int
-	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
-		return fmt.Errorf("can't tell the terminal's size from %q", out)
-	}
-	return h.popup(p, "-w", strconv.Itoa(min(width, cols)), "-h", strconv.Itoa(min(height, rows)))
+	return tmux.OpenPopup(h.tmux, p, "-w", strconv.Itoa(min(width, cols)), "-h", strconv.Itoa(min(height, rows)))
 }
 
 // PopupRight opens p in a popup over the right side, covering it, and
@@ -475,39 +477,26 @@ func (h *Host) Popup(p tmux.Popup, width, height int) error {
 // the host's, for while the right side shows no session, so there's no
 // nested client to open one on. Focus stays where it was.
 func (h *Host) PopupRight(p tmux.Popup) error {
-	out, err := h.tmux("display-message", "-p", "-t", h.right, "#{pane_width} #{pane_height}").Output()
+	cols, rows, err := h.size("the right side", "-t", h.right, "#{pane_width} #{pane_height}")
 	if err != nil {
-		return fmt.Errorf("can't tell the right side's size: %w", err)
-	}
-	var cols, rows int
-	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
-		return fmt.Errorf("can't tell the right side's size from %q", out)
+		return err
 	}
 	// -y is where the popup's bottom is
-	return h.popup(p, "-t", h.right, "-x", "#{popup_pane_left}", "-y", "#{popup_pane_bottom}",
+	return tmux.OpenPopup(h.tmux, p, "-t", h.right, "-x", "#{popup_pane_left}", "-y", "#{popup_pane_bottom}",
 		"-w", strconv.Itoa(cols), "-h", strconv.Itoa(rows))
 }
 
-// popup opens p in a popup on the host, placed and sized by where (the
-// display-popup arguments that do it), and returns once its program has
-// exited, whatever its exit status.
-func (h *Host) popup(p tmux.Popup, where ...string) error {
-	args := append(append([]string{"display-popup", "-E"}, where...), "-T", p.Title)
-	if p.Dir != "" {
-		args = append(args, "-d", p.Dir)
+// size is the width and height, in cells, of what, which display-message's
+// args (a format of the two, after a target if any) say.
+func (h *Host) size(what string, args ...string) (cols, rows int, err error) {
+	out, err := h.tmux(append([]string{"display-message", "-p"}, args...)...).Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("can't tell %s's size: %w", what, err)
 	}
-	for _, kv := range p.Env {
-		args = append(args, "-e", kv)
+	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
+		return 0, 0, fmt.Errorf("can't tell %s's size from %q", what, out)
 	}
-	cmd := h.tmux(append(append(args, "--"), p.Command...)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	// display-popup exits with its program's status, which isn't tmux
-	// failing: then it says nothing.
-	if err := cmd.Run(); err != nil && strings.TrimSpace(stderr.String()) != "" {
-		return errors.New(strings.TrimSpace(stderr.String()))
-	}
-	return nil
+	return cols, rows, nil
 }
 
 // Close ends the host: its server, then its folder. The sessions on the

@@ -3,6 +3,7 @@ package tmux
 import (
 	"bytes"
 	"errors"
+	"os/exec"
 	"strings"
 )
 
@@ -36,15 +37,23 @@ func (c *Client) Popup(p Popup) error {
 	if c.Nested == "" {
 		return errors.New("no nested client to open a popup on")
 	}
-	args := []string{"display-popup", "-c", c.Nested, "-E", "-w", "100%", "-h", "100%",
-		"-T", p.Title, "-e", ClientEnv + "=" + c.Nested}
+	p.Env = append([]string{ClientEnv + "=" + c.Nested}, p.Env...)
+	return OpenPopup(c.command, p, "-c", c.Nested, "-w", "100%", "-h", "100%")
+}
+
+// OpenPopup opens p in a popup on the server that command's tmux commands
+// (made of their arguments) reach, placed and sized by where (the
+// display-popup arguments that do it), and returns once its program has
+// exited, whatever its exit status.
+func OpenPopup(command func(args ...string) *exec.Cmd, p Popup, where ...string) error {
+	args := append(append([]string{"display-popup", "-E"}, where...), "-T", p.Title)
 	if p.Dir != "" {
 		args = append(args, "-d", p.Dir)
 	}
 	for _, kv := range p.Env {
 		args = append(args, "-e", kv)
 	}
-	cmd := c.command(append(append(args, "--"), p.Command...)...)
+	cmd := command(append(append(args, "--"), p.Command...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	// display-popup exits with its program's status, which isn't tmux
