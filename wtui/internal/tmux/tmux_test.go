@@ -169,9 +169,6 @@ func TestSnapshot(t *testing.T) {
 	if api.Activity.Before(before) || api.Activity.After(time.Now()) {
 		t.Errorf("my api's activity is %v, want about now", api.Activity)
 	}
-	if api.Attached != 1 || zv.Attached != 0 {
-		t.Errorf("my api has %d clients and žvėrys %d, want 1 and 0", api.Attached, zv.Attached)
-	}
 
 	wins := strings.Fields(tmuxRun(t, "list-windows", "-t", "=my api", "-F", "#{window_id}"))
 	want := []tmux.Window{

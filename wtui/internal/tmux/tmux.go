@@ -81,8 +81,6 @@ type Session struct {
 	// Activity is when the session was last used (session_activity), to the
 	// second.
 	Activity time.Time
-	// Attached is how many clients are attached to it.
-	Attached int
 	Windows  []Window // by index
 }
 
@@ -204,7 +202,7 @@ func (c *Client) Snapshot() (Snapshot, error) {
 	// Tab-separated, free text last: tmux escapes tabs in names, and output
 	// keeps them (and UTF-8) since output runs tmux with -u.
 	out, err := c.output(
-		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_attached}\t#{session_name}\t#{session_path}", ";",
+		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_name}\t#{session_path}", ";",
 		"list-windows", "-a", "-F", "W\t"+windowFormat, ";",
 		"display-message", "-p", "A\t"+agentFormat)
 	if noServer(err) {
@@ -219,15 +217,14 @@ func (c *Client) Snapshot() (Snapshot, error) {
 		kind, rest, _ := strings.Cut(line, "\t")
 		switch kind {
 		case "S":
-			f := strings.SplitN(rest, "\t", 5)
-			if len(f) < 5 {
+			f := strings.SplitN(rest, "\t", 4)
+			if len(f) < 4 {
 				continue
 			}
 			secs, _ := strconv.ParseInt(f[1], 10, 64)
-			attached, _ := strconv.Atoi(f[2])
 			at[f[0]] = len(snap.Sessions)
 			snap.Sessions = append(snap.Sessions, Session{
-				ID: f[0], Name: f[3], Path: f[4], Activity: time.Unix(secs, 0), Attached: attached,
+				ID: f[0], Name: f[2], Path: f[3], Activity: time.Unix(secs, 0),
 			})
 		case "W":
 			session, w, ok := parseWindow(rest)
