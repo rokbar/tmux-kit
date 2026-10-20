@@ -15,6 +15,7 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/repo"
 	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
 	"github.com/rokbar/tmux-kit/wtui/internal/tfolder"
+	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
 
@@ -28,18 +29,20 @@ func runDetails(folder, branch, devURL string) error {
 	return err
 }
 
-// runPick runs the picker here, in this folder, the invoking worktree. Its
-// failure, which wt has shown in the popup already, is for the status line.
+// runPick runs the picker here, in this folder, the invoking worktree. What
+// wt said it did, or its failure, which wt has shown in the popup already, is
+// for the status line.
 func runPick() error {
 	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
 	dir, err := os.Getwd()
+	var said string
 	if err == nil {
-		err = wt.New(exe).RunPick(dir)
+		said, err = wt.New(exe).RunPick(dir)
 	}
 	if err != nil {
 		return dialog.Say(err.Error())
 	}
-	return nil
+	return dialog.Say(said)
 }
 
 // runRemove is the remove dialog of the worktree at path, run in its main
@@ -66,20 +69,24 @@ func runRemove(path, question string) error {
 // session, a git repo's through wt and a plain folder's through t, and
 // switches the nested client to it, since this popup is that client's. With
 // -d, the popup is the host's, while the right side shows no session: then it
-// only opens the session, which the right side shows once there. When the
-// root is missing or empty, it says so in the popup; its failures are for
-// the status line.
-func runProject(args []string) error {
+// only opens the session, on the normal server at socket, which the right
+// side shows once there. When the root is missing or empty, it says so in
+// the popup; what wt said it did, or the failures, are for the status line.
+func runProject(socket string, args []string) error {
 	detach := len(args) > 0 && args[0] == "-d"
 	if detach {
 		args = args[1:]
-		// In the host's popup, TMUX names the host: wt and t must find the
-		// normal server, as the sidebar's own calls do.
+		// In the host's popup, TMUX names the host: wt and t must reach the
+		// normal server, by its socket once known, as the sidebar does. With
+		// -d, they only start a session there, never switch or attach.
 		os.Unsetenv("TMUX")
 		os.Unsetenv("TMUX_PANE")
+		if socket != "" {
+			os.Setenv("TMUX", tmux.InServer(socket))
+		}
 	}
 	if len(args) != 1 {
-		return dialog.Say("usage: wtui project [-d] <projects root>")
+		return dialog.Say("usage: wtui [-S <socket>] project [-d] <projects root>")
 	}
 	root := args[0]
 	projects, err := repo.Lookup{}.Projects(root)
@@ -108,29 +115,31 @@ func runProject(args []string) error {
 	if i < 0 {
 		return nil // cancelled
 	}
-	if err := openProject(projects[i], detach); err != nil {
+	said, err := openProject(projects[i], detach)
+	if err != nil {
 		return dialog.Say(err.Error())
 	}
-	return nil
+	return dialog.Say(said)
 }
 
 // openProject opens p's session, through wt for a git repo and t for a plain
-// folder, and switches the client this runs in to it, unless detach.
-func openProject(p repo.Project, detach bool) error {
+// folder, and switches the client this runs in to it, unless detach. It
+// returns what wt said it did; t says nothing.
+func openProject(p repo.Project, detach bool) (string, error) {
 	exe, _ := os.Executable()         // without it, wt and t are looked for only at $WT_BIN and on PATH
 	path, err := filepath.Abs(p.Path) // so wt takes it for a path, not a branch
 	switch {
 	case err != nil:
-		return err
+		return "", err
 	case p.Git && detach:
 		return wt.New(exe).Open(path, path)
 	case p.Git:
 		return wt.New(exe).OpenAndSwitch(path, path)
 	case detach:
 		_, err := tfolder.New(exe).Start(path)
-		return err
+		return "", err
 	}
-	return tfolder.New(exe).Open(path)
+	return "", tfolder.New(exe).Open(path)
 }
 
 // tilde is path with ~ for HOME, as the user would write it.

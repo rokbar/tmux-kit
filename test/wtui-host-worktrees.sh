@@ -23,7 +23,10 @@ sleep 1
 new_session api "$tmp/api"
 tmux rename-window -t =api: shell
 
-# wtui runs in a folder outside the repo: wt lists api in its main clone
+# wtui runs in a folder outside the repo: wt lists api in its main clone. The
+# sidebar is wide enough for the status line to hold wt's message, which
+# names a folder under $tmp (long on macOS).
+tmux set-option -g @wtui-width 60
 launch t1 "$tmp"
 tree=' wtui
   ▾ api
@@ -59,7 +62,7 @@ cursor_on() { [ "$(cursor_row t1)" = "$1" ]; }
 wait_until "the cursor to show on api" cursor_on '1   ▾ api'
 
 # enter on docs: wt opens its session, named after its branch, and the right
-# side shows it, with focus there.
+# side shows it, with focus there. The status line says what wt did.
 type_in t1 j j
 wait_until "the cursor to move to docs" cursor_on '      docs'
 type_in t1 Enter
@@ -67,8 +70,12 @@ wait_until "enter on docs to show its new session" eval '[ "$(showing t1)" = doc
 wait_until "enter to focus the right side" focus_on t1 right
 [ "$(tmux display-message -p -t =docs: '#{session_path}')" = "$tmp/api--docs" ] ||
   fail "docs's session started in $(tmux display-message -p -t =docs: '#{session_path}'), want $tmp/api--docs"
+squeezed() { tr -d ' \n'; }
+said="wt: $tmp/api--docs (tmux session docs)"
+wait_until "the status line to say what wt did" eval '[[ "$(sidebar_text t1 | squeezed)" == *"$(squeezed <<<"$said")" ]]'
 # docs is now its session's row, active, so unfolded; its window's name is
-# tmux's to choose, so windows are left out.
+# tmux's to choose, so windows are left out, and so is the status line,
+# under the tree's first blank line.
 tree=' wtui
   ▾ api
 1   ▸ api
@@ -77,7 +84,7 @@ tree=' wtui
 3     ▸ fix
 4     ▸ fix-web
       api--gone ✗'
-without_windows() { [ "$(sidebar_text t1 | awk '!/^ +[0-9]+ /')" = "$1" ]; }
+without_windows() { [ "$(sidebar_text t1 | awk '$0 == "" { exit } !/^ +[0-9]+ /')" = "$1" ]; }
 wait_until "the sidebar to show docs's session" without_windows "$tree"
 if dimmed '2   ▾ docs'; then fail "docs, with a session now, is dimmed"; fi
 

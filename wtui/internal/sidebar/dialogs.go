@@ -69,6 +69,16 @@ func (m Model) dialogIn(open func(tmux.Popup) error, p tmux.Popup) (Model, tea.C
 	}
 }
 
+// onNormal is command, a dialog's wtui subcommand and its arguments, for a
+// dialog that talks to the normal server itself: it reaches the server by
+// its socket (wtui -S), once that's known.
+func (m Model) onNormal(command ...string) []string {
+	if m.c.Socket == "" {
+		return command
+	}
+	return append([]string{"-S", m.c.Socket}, command...)
+}
+
 // dialogClosed is a dialog's popup closed: what the dialog said, and why
 // it failed to open, if it did.
 type dialogClosed struct {
@@ -89,9 +99,7 @@ func (m Model) withClosed(d dialogClosed) (Model, tea.Cmd) {
 }
 
 // text is what the status line says once the dialog has closed.
-func (d dialogClosed) text() string {
-	return strings.TrimSpace(d.said + "\n" + errText(d.err))
-}
+func (d dialogClosed) text() string { return saidText(d.said, d.err) }
 
 // shortcuts shows every shortcut in a popup over the whole host, sized to
 // fit them: the page dialog. Focus stays where it is.

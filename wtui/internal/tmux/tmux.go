@@ -416,6 +416,13 @@ func (c *Client) command(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// InServer is the value of TMUX that ties a program to the server at
+// socket, as if it ran in one of that server's panes: tmux, run without -L
+// or -S, reaches that server, wherever TMUX_TMPDIR points. tmux reads only
+// the socket from TMUX; the pane is TMUX_PANE's to name, and a program given
+// this names none.
+func InServer(socket string) string { return socket + ",0,0" }
+
 // WithoutTmux is env without TMUX and TMUX_PANE, the variables that tie a
 // program to the tmux server it runs in.
 func WithoutTmux(env []string) []string {

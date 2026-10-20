@@ -2,11 +2,12 @@
 # p, end to end. It offers the folders in the projects root (~/Projects
 # while @wtui-projects-root isn't set), worktrees left out, in fzf over the
 # right side, and the one chosen becomes the active session: a git repo
-# opened through wt, a plain folder through t, named as t names it. Only the
-# right side moves: another client of the normal server, used last, stays
-# where it was. Cancelling changes nothing, and a missing or empty root says
-# so. With no session on the right, p works too, in a popup on the host over
-# the right side, and the right side then shows what it opened.
+# opened through wt, which the status line quotes, a plain folder through t,
+# named as t names it. Only the right side moves: another client of the
+# normal server, used last, stays where it was. Cancelling changes nothing,
+# and a missing or empty root says so. With no session on the right, p works
+# too, in a popup on the host over the right side, which reaches the normal
+# server by its socket, and the right side then shows what it opened.
 set -euo pipefail
 # shellcheck source=test/lib/host.sh
 . "$(dirname "$0")/lib/host.sh"
@@ -35,6 +36,9 @@ export PATH="$tmp/stubs:$PATH"
 
 root="$HOME/Projects"
 new_session start "$tmp/start"
+# The sidebar is wide enough for the status line to hold wt's messages,
+# which name folders under $tmp (long on macOS).
+tmux set-option -g @wtui-width 50
 launch t1 "$tmp/start"
 
 # shows <text>: the terminal shows <text>
@@ -88,27 +92,43 @@ wait_until "the cancelled p to give focus back to the sidebar" eval 'gone " open
 [ "$(sessions)" = "$before" ] || fail "a cancelled p changed the sessions from $before to $(sessions)"
 
 # p, api: wt opens the main clone's session, named after its branch, and
-# the right side shows it, the sidebar's cursor on it
+# the right side shows it, the sidebar's cursor on it. The status line says
+# what wt did.
+squeezed() { tr -d ' \n'; }
+status_says() { [[ "$(sidebar_text t1 | squeezed)" == *"$(squeezed <<<"$1")" ]]; }
 echo "pick api" >"$tmp/fzf-do"
 type_in t1 p
 wait_until "the right side to show api's session, main" eval '[ "$(showing t1)" = main ]'
 started_in main "$root/api" || fail "main started in $(tmux display-message -p -t =main: '#{session_path}'), want $root/api"
 wait_until "focus to come back to the sidebar, on main" eval 'focus_on t1 sidebar && [ "$(cursor_row t1)" = "1   ▾ main" ]'
 [ "$(plain_on)" = start ] || fail "opening api moved the other client to '$(plain_on)'"
+wait_until "the status line to say what wt did" status_says "wt: $root/api (tmux session main)"
 
-# p, my.notes: t opens its session, named as t names it
+# p, my.notes: t opens its session, named as t names it. t says nothing, so
+# neither does the status line.
 echo "pick my.notes" >"$tmp/fzf-do"
 type_in t1 p
 wait_until "the right side to show my.notes' session, my_notes" eval '[ "$(showing t1)" = my_notes ]'
 started_in my_notes "$root/my.notes" || fail "my_notes started in $(tmux display-message -p -t =my_notes: '#{session_path}'), want $root/my.notes"
 wait_until "focus to come back to the sidebar, on my_notes" eval 'focus_on t1 sidebar && [ "$(cursor_row t1)" = "2   ▾ my_notes" ]'
 [ "$(plain_on)" = start ] || fail "opening my.notes moved the other client to '$(plain_on)'"
+wait_until "the status line to say nothing" eval '! status_says "wt: $root/api (tmux session main)"'
 
 # With no session left, p opens over the right side on the host, and what
-# it opens shows on the right
+# it opens shows on the right. The host's popup reaches the normal server by
+# its socket, whatever the environment it runs in says: here its
+# TMUX_TMPDIR, which would lead wt and t to another server (one t would
+# start, killed on exit).
+mkdir "$tmp/elsewhere"
+elsewhere="$tmp/elsewhere/tmux-$(id -u)/default"
+trap 'tmux -S "$elsewhere" kill-server 2>/dev/null || true; kill_servers' EXIT
+host t1 set-environment -g TMUX_TMPDIR "$tmp/elsewhere"
+no_session() {
+  wait_until "the right side to say there's no session" eval 'host t1 capture-pane -p -t "$(right_pane t1)" | grep -q "No session to show"'
+  wait_until "the sidebar to take focus" focus_on t1 sidebar
+}
 for s in main my_notes start; do tmux kill-session -t "=$s"; done
-wait_until "the right side to say there's no session" eval 'host t1 capture-pane -p -t "$(right_pane t1)" | grep -q "No session to show"'
-wait_until "the sidebar to take focus" focus_on t1 sidebar
+no_session
 echo "hold my.notes" >"$tmp/fzf-do"
 type_in t1 p
 wait_until "p to open over the right side" eval 'screen t1 | head -1 | grep -q "│┌.*open a project"'
@@ -118,5 +138,16 @@ touch "$tmp/fzf-go"
 wait_until "the right side to show my_notes" eval '[ "$(showing t1)" = my_notes ]'
 started_in my_notes "$root/my.notes" || fail "my_notes started in $(tmux display-message -p -t =my_notes: '#{session_path}'), want $root/my.notes"
 wait_until "the cursor to be on my_notes" eval '[ "$(cursor_row t1)" = "1   ▾ my_notes" ]'
+
+# api, the same way: through wt, and the status line says what wt did
+tmux kill-session -t =my_notes
+no_session
+echo "pick api" >"$tmp/fzf-do"
+type_in t1 p
+wait_until "the right side to show main" eval '[ "$(showing t1)" = main ]'
+started_in main "$root/api" || fail "main started in $(tmux display-message -p -t =main: '#{session_path}'), want $root/api"
+wait_until "the cursor to be on main" eval '[ "$(cursor_row t1)" = "1   ▾ main" ]'
+wait_until "the status line to say what wt did" status_says "wt: $root/api (tmux session main)"
+[ ! -S "$elsewhere" ] || fail "p started a server in TMUX_TMPDIR's folder: $(tmux -S "$elsewhere" list-sessions 2>&1)"
 
 echo "ok: wtui-host-projects"

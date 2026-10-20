@@ -17,15 +17,16 @@ import (
 // fakeWt is wt for the git projects it has lists for, by main clone; fails
 // has a project's failure to list instead. A project it has neither for lists
 // nothing, so it shows as tmux sees it. Opening a worktree starts a session
-// there on normal, named after its branch, else its folder, as wt does. It
-// records what it listed and opened.
+// there on normal, named after its branch, else its folder, as wt does, and
+// says openSaid. It records what it listed and opened.
 type fakeWt struct {
-	normal  *fakeNormal
-	lists   map[string][]wt.Worktree
-	fails   map[string]error
-	openErr error
-	listed  []string // main clones
-	opened  []string // "<main clone> <path>"
+	normal   *fakeNormal
+	lists    map[string][]wt.Worktree
+	fails    map[string]error
+	openSaid string
+	openErr  error
+	listed   []string // main clones
+	opened   []string // "<main clone> <path>"
 }
 
 func (w *fakeWt) List(mainClone string) ([]wt.Worktree, error) {
@@ -36,10 +37,10 @@ func (w *fakeWt) List(mainClone string) ([]wt.Worktree, error) {
 	return w.lists[mainClone], nil
 }
 
-func (w *fakeWt) Open(mainClone, path string) error {
+func (w *fakeWt) Open(mainClone, path string) (string, error) {
 	w.opened = append(w.opened, mainClone+" "+path)
 	if w.openErr != nil {
-		return w.openErr
+		return "", w.openErr
 	}
 	for _, r := range w.lists[mainClone] {
 		if r.Path == path {
@@ -50,7 +51,7 @@ func (w *fakeWt) Open(mainClone, path string) error {
 			w.normal.snap.Sessions = append(w.normal.snap.Sessions, session(90+len(w.opened), name, path, "shell"))
 		}
 	}
-	return nil
+	return w.openSaid, nil
 }
 
 // wtFailure is a failure of wt's of kind (e.g. wt.ErrTooOld), with what wt
@@ -217,6 +218,19 @@ func TestEnterOnAWorktreeWithoutASessionOpensItThenShowsIt(t *testing.T) {
 	}
 	if got := cursor(t, m); got != "4   ▾ docs" {
 		t.Errorf("the cursor is on %q, want docs's session", got)
+	}
+}
+
+// Once wt has opened the worktree's session, the status line says what wt
+// said it did.
+func TestOpeningAWorktreeSaysWhatWtSaid(t *testing.T) {
+	f := worktrees()
+	f.wt.openSaid = "wt: /p/api--docs (tmux session docs)"
+	m := keys(t, focused(t, f), press("j"), press("j"), press("j")) // docs
+	m, cmd := update(t, m, enter)
+	m, _ = update(t, m, run(t, cmd))
+	if got := plain(m); !strings.HasSuffix(got, "\nwt: /p/api--docs (tmux session docs)") {
+		t.Errorf("view:\n%s\nwant it to end with what wt said", got)
 	}
 }
 

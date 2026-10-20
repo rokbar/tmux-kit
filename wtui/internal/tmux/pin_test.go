@@ -82,6 +82,28 @@ func TestAPinnedClientKeepsToItsServer(t *testing.T) {
 	}
 }
 
+// A program run with TMUX set to InServer of a pinned client's socket, as a
+// dialog runs wt and t, has tmux reach that server, wherever TMUX_TMPDIR
+// points: here, at another server's folder. What it starts there detached,
+// as wt and t start sessions, is on that server, not the other.
+func TestInServerReachesThePinnedServer(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	nested, on := pinned(t, s)
+
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", "fresh")
+	cmd.Env = append(os.Environ(), "TMUX="+tmux.InServer(nested.Socket))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("tmux new-session -d with TMUX=%s: %v\n%s", tmux.InServer(nested.Socket), err, out)
+	}
+	if got := strings.Fields(on("list-sessions", "-F", "#{session_name}")); !slices.Contains(got, "fresh") {
+		t.Errorf("the pinned server's sessions are %q, want fresh among them", got)
+	}
+	if got := strings.Fields(tmuxRun(t, "list-sessions", "-F", "#{session_name}")); slices.Contains(got, "fresh") {
+		t.Errorf("the other server's sessions are %q, want fresh not among them", got)
+	}
+}
+
 // Once its server's socket has gone (here, with its folder), a pinned client
 // finds no server, as with none running, rather than the one TMUX_TMPDIR
 // points at: it lists no sessions there and changes nothing there. Its Watch

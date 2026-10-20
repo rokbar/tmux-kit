@@ -81,7 +81,7 @@ printf 'wt failed (see above); press any key' >&2
 exit 1`))
 	terminal := asTerminal(t, s, "y\n")
 
-	err := wt.New("").RunPick(demo)
+	_, err := wt.New("").RunPick(demo)
 	if err == nil || err.Error() != "wt: tmux session y already exists" {
 		t.Errorf("RunPick() = %v, want wt's message, up to its prompt", err)
 	}
@@ -101,9 +101,10 @@ exit 1`))
 }
 
 // Cancelled (fzf exits 130 on Esc), or once it has opened something, the
-// picker is no failure. wt takes the folder it runs in as the invoking
-// worktree: a new branch would start from that worktree's branch. Like every
-// wt call, it runs with git's credential prompts off.
+// picker is no failure; cancelled, wt says nothing. wt takes the folder it
+// runs in as the invoking worktree: a new branch would start from that
+// worktree's branch. Like every wt call, it runs with git's credential
+// prompts off.
 func TestRunPickThatWorks(t *testing.T) {
 	s := sandbox.New(t)
 	demo := s.Repo("demo")
@@ -113,8 +114,12 @@ func TestRunPickThatWorks(t *testing.T) {
 	stubFzf(t, s, `echo "$GIT_TERMINAL_PROMPT" >'`+s.Path("prompt")+`'; exit 130`)
 	asTerminal(t, s, "")
 
-	if err := wt.New("").RunPick(feat); err != nil {
+	said, err := wt.New("").RunPick(feat)
+	if err != nil {
 		t.Errorf("RunPick() = %v, want no failure: the picker was cancelled", err)
+	}
+	if said != "" {
+		t.Errorf("the cancelled picker said %q, want nothing", said)
 	}
 	if got := strings.TrimSpace(readFile(t, s, "fzf-pwd")); got != feat {
 		t.Errorf("the picker ran in %s, want %s", got, feat)
@@ -127,6 +132,29 @@ func TestRunPickThatWorks(t *testing.T) {
 	}
 }
 
+// Once the picker has opened something, RunPick says what wt said it did in
+// the end: its last line on stdout, after any on the way there (e.g. a new
+// branch). The terminal showed every line.
+func TestRunPickSaysWhatWtDid(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	t.Setenv("WT_BIN", s.Script("bin/wt", `echo 'wt: new branch fresh from main'
+echo 'wt: /p/demo--fresh (tmux session fresh)'`))
+	terminal := asTerminal(t, s, "")
+
+	said, err := wt.New("").RunPick(demo)
+	if err != nil {
+		t.Fatalf("RunPick() = %v, want no failure", err)
+	}
+	if want := "wt: /p/demo--fresh (tmux session fresh)"; said != want {
+		t.Errorf("RunPick() said %q, want wt's last line %q", said, want)
+	}
+	want := "wt: new branch fresh from main\nwt: /p/demo--fresh (tmux session fresh)\n"
+	if stdout, _ := terminal(); stdout != want {
+		t.Errorf("the terminal showed %q on stdout, want %q", stdout, want)
+	}
+}
+
 // When the picker fails (here, an fzf too old for wt's options), the error's
 // text is what wt said on stderr.
 func TestFailedRunPickCarriesWtsMessage(t *testing.T) {
@@ -135,7 +163,7 @@ func TestFailedRunPickCarriesWtsMessage(t *testing.T) {
 	stubFzf(t, s, `echo 'unknown option: --accept-nth' >&2; exit 2`)
 	asTerminal(t, s, "")
 
-	err := wt.New("").RunPick(demo)
+	_, err := wt.New("").RunPick(demo)
 	if err == nil {
 		t.Fatal("RunPick worked, want it to fail")
 	}
@@ -150,23 +178,24 @@ func TestRunPickWithNoWtIsNotFound(t *testing.T) {
 	demo := s.Repo("demo")
 	t.Setenv("WT_BIN", s.Path("no/such/wt"))
 	asTerminal(t, s, "")
-	if err := wt.New("").RunPick(demo); !errors.Is(err, wt.ErrNotFound) {
+	if _, err := wt.New("").RunPick(demo); !errors.Is(err, wt.ErrNotFound) {
 		t.Errorf("RunPick() = %v, want wt.ErrNotFound", err)
 	}
 }
 
 // Something wt started in the background (e.g. from a config hook) can keep
-// its stderr open after wt has exited. RunPick doesn't wait for that, or the
-// popup would stay open, frozen, until that ended. Nor does it cut it off,
-// which would kill it the next time it wrote there. What it writes once wt
-// has exited isn't shown.
+// its stdout and stderr open after wt has exited. RunPick doesn't wait for
+// that, or the popup would stay open, frozen, until that ended. Nor does it
+// cut them off, which would kill it the next time it wrote there. What it
+// writes once wt has exited isn't shown, nor is it what wt said.
 func TestRunPickDoesNotWaitForWhatWtLeftRunning(t *testing.T) {
 	s := sandbox.New(t)
 	demo := s.Repo("demo")
 	pid, alive := s.Path("pid"), s.Path("alive")
-	t.Setenv("WT_BIN", s.Script("bin/wt", `(sleep 3; echo late >&2; echo yes >'`+alive+`'; sleep 30) &
+	t.Setenv("WT_BIN", s.Script("bin/wt", `(sleep 3; echo late; echo late >&2; echo yes >'`+alive+`'; sleep 30) &
 echo $! >'`+pid+`'
-echo 'wt: opened' >&2`))
+echo 'wt: opened'
+echo 'wt: on stderr' >&2`))
 	t.Cleanup(func() {
 		if b, err := os.ReadFile(pid); err == nil {
 			exec.Command("pkill", "-P", strings.TrimSpace(string(b))).Run()
@@ -176,11 +205,15 @@ echo 'wt: opened' >&2`))
 	terminal := asTerminal(t, s, "")
 
 	start := time.Now()
-	if err := wt.New("").RunPick(demo); err != nil {
+	said, err := wt.New("").RunPick(demo)
+	if err != nil {
 		t.Errorf("RunPick() = %v, want no error: wt exited 0", err)
 	}
 	if took := time.Since(start); took > 3*time.Second {
 		t.Errorf("RunPick took %v: it waited for what wt left running", took)
+	}
+	if said != "wt: opened" {
+		t.Errorf("RunPick() said %q, want what wt said before it exited", said)
 	}
 	for range 50 {
 		if _, err := os.Stat(alive); err == nil {
@@ -189,9 +222,10 @@ echo 'wt: opened' >&2`))
 		time.Sleep(100 * time.Millisecond)
 	}
 	if _, err := os.Stat(alive); err != nil {
-		t.Error("what wt left running died writing to stderr once wt had exited")
+		t.Error("what wt left running died writing to stdout or stderr once wt had exited")
 	}
-	if _, stderr := terminal(); stderr != "wt: opened\n" {
-		t.Errorf("the terminal showed %q on stderr, want only what wt said before it exited", stderr)
+	stdout, stderr := terminal()
+	if stdout != "wt: opened\n" || stderr != "wt: on stderr\n" {
+		t.Errorf("the terminal showed %q on stdout and %q on stderr, want only what wt said before it exited", stdout, stderr)
 	}
 }

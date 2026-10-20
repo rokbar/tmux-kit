@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -86,8 +87,9 @@ type Wt interface {
 	List(mainClone string) ([]wt.Worktree, error)
 	// Open opens the session of the main clone or worktree at path, in the
 	// project whose main clone is mainClone, without showing it: one with
-	// wt's default name and usual setup, unless there's one already.
-	Open(mainClone, path string) error
+	// wt's default name and usual setup, unless there's one already. It
+	// returns what wt said it did.
+	Open(mainClone, path string) (string, error)
 	// GitUICommand is the command line (words) that runs the git UI in the
 	// main clone or worktree at path, on a terminal of its own.
 	GitUICommand(path string) ([]string, error)
@@ -197,9 +199,10 @@ type built struct {
 }
 
 // shown is the right side showing session, once asked to, or why it
-// doesn't.
+// doesn't, and what wt said if it opened the session first.
 type shown struct {
 	session string
+	said    string
 	err     error
 }
 
@@ -382,7 +385,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case shown:
-		m.status.action = errText(msg.err)
+		m.status.action = saidText(msg.said, msg.err)
 		if msg.session != "" {
 			// at once, before tmux says so (ActiveSessionChanged); a window
 			// shown becomes its session's current one when tmux says that
@@ -519,4 +522,10 @@ func errText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// saidText is what the status line says once an action is done: what wt (or
+// a dialog) said, then why the action failed, if it did.
+func saidText(said string, err error) string {
+	return strings.TrimSpace(said + "\n" + errText(err))
 }

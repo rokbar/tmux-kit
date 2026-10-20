@@ -18,10 +18,12 @@ func (h *fakeHost) PopupRight(p tmux.Popup) error {
 	return nil
 }
 
-// withRoot is withDialogs with /home/u/Projects for the projects root.
+// withRoot is withDialogs with /home/u/Projects for the projects root, and
+// the normal server's socket known.
 func withRoot(t *testing.T, f fakes) Model {
 	t.Helper()
-	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt, Wtui: wtui, ProjectsRoot: "/home/u/Projects"}, `C-\`)
+	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt, Wtui: wtui, Socket: socket,
+		ProjectsRoot: "/home/u/Projects"}, `C-\`)
 	m = feed(t, m, m.Init())
 	m, _ = update(t, m, tea.FocusMsg{})
 	return m
@@ -55,14 +57,16 @@ func samePopup(a, b tmux.Popup) bool {
 // While the right side shows no session (the last one ended), there's no
 // nested client to open a popup on: p opens the dialog on the host, over the
 // right side, telling it to only open the session (-d), which the right side
-// then shows by itself. The tree is empty then, with no row for the cursor.
+// then shows by itself. The host's popup isn't the normal server's, so the
+// dialog reaches that by its socket. The tree is empty then, with no row for
+// the cursor.
 func TestWithNoSessionPOpensTheDialogOnTheHost(t *testing.T) {
 	f := worktrees()
 	f.normal.snap, f.normal.active = tmux.Snapshot{}, ""
 	m := withRoot(t, f)
 	m, cmd := update(t, m, press("p"))
 	feed(t, m, cmd)
-	want := []string{"focus right", "popup right open a project in /home/u/Projects: /bin/wtui project -d /home/u/Projects", "focus sidebar"}
+	want := []string{"focus right", "popup right open a project in /home/u/Projects: /bin/wtui -S " + socket + " project -d /home/u/Projects", "focus sidebar"}
 	if !slices.Equal(f.host.asked, want) {
 		t.Errorf("with no session, p asked the host %q, want %q", f.host.asked, want)
 	}

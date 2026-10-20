@@ -297,7 +297,7 @@ func TestOpenStartsASessionInTheWorktree(t *testing.T) {
 
 	c := wt.New("")
 	for _, path := range []string{feat, rebase, demo} {
-		if err := c.Open(demo, path); err != nil {
+		if _, err := c.Open(demo, path); err != nil {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 	}
@@ -306,6 +306,27 @@ func TestOpenStartsASessionInTheWorktree(t *testing.T) {
 		{Path: feat, Branch: "feat", State: wt.Clean, Session: "feat"},
 		{Path: rebase, State: wt.Dirty, Session: "demo--rebase"},
 	})
+}
+
+// Opening says what wt said it did: the worktree's folder and its session,
+// whether wt started the session or found it there.
+func TestOpenSaysWhatWtSaid(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	demo := s.Repo("demo")
+	feat := s.Path("demo--feat")
+	s.Git(demo, "worktree", "add", "-q", feat, "-b", "feat")
+
+	c := wt.New("")
+	for _, when := range []string{"started", "already there"} {
+		said, err := c.Open(demo, feat)
+		if err != nil {
+			t.Fatalf("Open(%s), session %s: %v", feat, when, err)
+		}
+		if want := "wt: " + feat + " (tmux session feat)"; said != want {
+			t.Errorf("Open(%s), session %s, said %q, want wt's message %q", feat, when, said, want)
+		}
+	}
 }
 
 // A failed open reads as what wt said, e.g. for a worktree whose folder is gone.
@@ -326,7 +347,7 @@ func TestFailedOpenCarriesWtsMessage(t *testing.T) {
 		t.Fatalf("wt -d %s worked, want it to fail", gone)
 	}
 
-	err := wt.New("").Open(demo, gone)
+	_, err := wt.New("").Open(demo, gone)
 	if err == nil {
 		t.Fatalf("Open(%s) worked, want it to fail", gone)
 	}

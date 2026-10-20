@@ -40,6 +40,9 @@ new_session api "$tmp/api"
 new_session fix "$tmp/api--fix"
 for s in api fix; do tmux rename-window -t "=$s:" shell; done
 
+# The sidebar is wide enough for the status line to hold wt's messages,
+# which name folders under $tmp (long on macOS).
+tmux set-option -g @wtui-width 60
 launch t1 "$tmp/api--fix"
 tree=' wtui
   ▾ api
@@ -111,13 +114,16 @@ wait_until "the status line to say what wt said" eval '[[ "$(sidebar_text t1 | s
 focus_on t1 sidebar || fail "after the picker failed, focus is on the $(focus t1)"
 
 # n, a new branch: wt asks for its session's name in the popup, then shows
-# the session on the right. The sidebar follows, with focus.
+# the session on the right. The sidebar follows, with focus, and the status
+# line says what wt did in the end.
 echo "new fresh" >"$tmp/fzf-do"
 type_in t1 n
 wait_until "the picker to ask for the session's name" shows "session name [fresh]"
 type_in t1 Enter
 wait_until "the right side to show fresh" eval '[ "$(showing t1)" = fresh ]'
 wait_until "focus to come back to the sidebar, on fresh" eval 'focus_on t1 sidebar && [ "$(cursor_row t1)" = "3   ▾ fresh" ]'
+said="wt: $tmp/api--fresh (tmux session fresh)"
+wait_until "the status line to say what wt did" eval '[[ "$(sidebar_text t1 | squeezed)" == *"$(squeezed <<<"$said")" ]]'
 [ "$(git -C "$tmp/api--fresh" log -1 --format=%s)" = "fix the login form" ] || fail "fresh doesn't start from fix"
 [ "$(plain_on)" = api ] || fail "the picker moved the other client to '$(plain_on)'"
 

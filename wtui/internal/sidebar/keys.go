@@ -193,27 +193,28 @@ func (m Model) enter() (Model, tea.Cmd) {
 
 // opening has wt open the session of n, a worktree's row, then shows that
 // session (the one started in the worktree's folder) on the right and moves
-// focus there.
+// focus there. The status line says what wt said it did.
 func (m Model) opening(n *tree.Node) tea.Cmd {
 	w, normal, host := m.c.Wt, m.c.Normal, m.c.Host
 	project, path := n.Parent.Path, n.Path
 	return func() tea.Msg {
-		if err := w.Open(project, path); err != nil {
+		said, err := w.Open(project, path)
+		if err != nil {
 			return shown{err: err}
 		}
 		snap, err := normal.Snapshot()
 		if err != nil {
-			return shown{err: err}
+			return shown{said: said, err: err}
 		}
 		i := slices.IndexFunc(snap.Sessions, func(s tmux.Session) bool { return s.Path == path })
 		if i < 0 {
-			return shown{err: fmt.Errorf("wt opened %s, but no session started there", path)}
+			return shown{said: said, err: fmt.Errorf("wt opened %s, but no session started there", path)}
 		}
 		session := snap.Sessions[i].ID
 		if err := normal.Show(session, ""); err != nil {
-			return shown{err: err}
+			return shown{said: said, err: err}
 		}
-		return shown{session: session, err: host.FocusRight()}
+		return shown{session: session, said: said, err: host.FocusRight()}
 	}
 }
 

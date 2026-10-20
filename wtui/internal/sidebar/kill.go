@@ -30,12 +30,7 @@ func (m Model) kill(n *tree.Node) (Model, tea.Cmd) {
 	if n.ID.Kind == tree.Window {
 		target += ":" + n.Window
 	}
-	var command []string
-	if m.c.Socket != "" {
-		command = []string{"-S", m.c.Socket}
-	}
-	command = append(command, "kill", target, m.killQuestion(n))
-	return m.dialog(tmux.Popup{Title: " kill ", Command: command})
+	return m.dialog(tmux.Popup{Title: " kill ", Command: m.onNormal("kill", target, m.killQuestion(n))})
 }
 
 // killQuestion is the kill dialog's question for n, a session's or a
