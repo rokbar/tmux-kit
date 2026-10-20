@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
+	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
 
 // socket is the normal server's socket, in these tests.
@@ -102,7 +103,9 @@ The worktree api--fix-login stays.`
 	want = `Kill window 1 dev of session login?
 The agent in it ends too:
   1 dev: working`
-	if got := question(t, withAgents(), "        1 dev *"); got != want {
+	linked := withAgents() // dev is linked into another session too, where tmux lists its agent again
+	linked.normal.snap.Agents = append(linked.normal.snap.Agents, agent("$9", "@21", "%1", tmux.Working))
+	if got := question(t, linked, "        1 dev *"); got != want {
 		t.Errorf("on login's dev, the question is:\n%s\nwant:\n%s", got, want)
 	}
 	// a session in no worktree, and without agents

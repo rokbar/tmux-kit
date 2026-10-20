@@ -119,4 +119,17 @@ wait_until "focus and the cursor to be on api" eval 'focus_on t1 sidebar && curs
 git -C "$tmp/api" worktree list --porcelain | awk -v d="worktree $tmp/api--fix" '$0 == d { found = 1 } END { exit !found }' ||
   fail "killing fix's session removed its worktree from git"
 
+# d on notes, which ends some other way before y: the status line says what
+# tmux said
+type_in t1 j j j j
+wait_until "the cursor to be on notes" cursor_on "2   ▸ notes"
+notes="$(tmux display-message -p -t =notes: '#{session_id}')"
+type_in t1 d
+wait_until "d to ask whether to kill notes" shows "Kill session notes and its one window?"
+tmux kill-session -t =notes
+type_in t1 y
+wait_until "the status line to say notes was gone" eval '[[ "$(sidebar_text t1 | squeezed)" == *"$(squeezed <<<"can'"'"'t find session: $notes")"* ]]'
+focus_on t1 sidebar || fail "after a failed kill, focus is on the $(focus t1)"
+[ "$(showing t1)" = api ] || fail "after a failed kill, the right side shows '$(showing t1)', want api"
+
 echo "ok: wtui-host-kill"
