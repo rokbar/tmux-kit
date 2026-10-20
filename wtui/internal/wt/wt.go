@@ -144,6 +144,23 @@ func (c *Client) GitUI(dir, path string, done tea.ExecCallback) tea.Cmd {
 	return c.onTerminal(dir, done, "git-ui", path)
 }
 
+// GitUICommand is the command line (words, for no shell) that runs the
+// user's git UI (`wt git-ui <path>`) in the main clone or worktree at path,
+// on a terminal of its own that closes once it exits: a floating pane or a
+// popup. If wt fails (e.g. no git UI is configured, or it isn't installed),
+// or the git UI exits non-zero, what either said stays on that terminal
+// until a key is pressed. The command line runs in the terminal's
+// environment, not wtui's, so wt is named by its path.
+func (c *Client) GitUICommand(path string) ([]string, error) {
+	bin, err := c.find()
+	if err != nil {
+		return nil, err
+	}
+	// sh, not the user's shell, and a key without enter
+	const keep = `"$@" || { printf '\npress any key to close'; stty -icanon -echo 2>/dev/null; dd bs=1 count=1 >/dev/null 2>&1; }`
+	return []string{"/bin/sh", "-c", keep, "sh", bin, "git-ui", path}, nil
+}
+
 // onTerminal is a command that runs wt with args in dir on the terminal:
 // tea.Exec pauses wtui, gives wt the terminal, and resumes wtui once wt has
 // exited, then reports to done. If wt exits non-zero, done's error is of no

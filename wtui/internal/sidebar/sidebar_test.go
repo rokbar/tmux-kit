@@ -36,6 +36,12 @@ type fakeNormal struct {
 	lastErr   error
 	snapshots int      // how many times Snapshot ran
 	shown     []string // "session" or "session:window", by id, or "last"
+	// version is its tmux version; what floats or pops up over the right
+	// side goes in host's log, unless floatErr or popupErr (see
+	// gitui_test.go)
+	version            string
+	host               *fakeHost
+	floatErr, popupErr error
 }
 
 func (n *fakeNormal) Snapshot() (tmux.Snapshot, error) {

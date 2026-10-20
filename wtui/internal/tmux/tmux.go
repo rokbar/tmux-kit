@@ -8,6 +8,7 @@ package tmux
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -21,6 +22,10 @@ import (
 // What else the host uses is older: popups on a given client and format
 // subscriptions (3.2), the window-resized hook (3.3).
 const MinVersion = "3.6"
+
+// FloatingVersion is the first tmux with floating panes, which the git UI
+// floats in; on an older one, it pops up.
+const FloatingVersion = "3.7"
 
 // DefaultKey is the wtui key while the normal server's @wtui-key option
 // isn't set.
@@ -295,6 +300,53 @@ func (c *Client) ShowLast() (string, error) {
 		return "", ErrNoOtherSession
 	}
 	return last.ID, c.Show(last.ID, "")
+}
+
+// Float runs command (words, run without a shell) in folder dir, in a
+// floating pane over the window the nested client shows, with focus in it,
+// and returns once it has started. The pane covers the window but for its
+// border, one cell in from each edge; it closes once command exits. It stays
+// with the window, at that size, whichever session the nested client goes
+// on to show. Floating panes are new in FloatingVersion.
+func (c *Client) Float(dir string, command []string) error {
+	if c.Nested == "" {
+		return errors.New("no nested client to float a pane over")
+	}
+	out, err := c.output("display-message", "-c", c.Nested, "-p", "#{version}\t#{window_id}\t#{window_width}\t#{window_height}")
+	if err != nil {
+		return err
+	}
+	f := strings.Split(out, "\t")
+	if len(f) != 4 {
+		return fmt.Errorf("tmux said %q of the nested client's window", out)
+	}
+	w, _ := strconv.Atoi(f[2])
+	h, _ := strconv.Atoi(f[3])
+	// tmux 3.7 places and sizes the content, its border drawn around it;
+	// from 3.8, the border too.
+	x, y := 1, 1
+	if Older(f[0], "3.8") {
+		w, h = w-2, h-2
+	} else {
+		x, y = 0, 0
+	}
+	args := []string{"new-pane", "-t", f[1], "-c", dir,
+		"-X", strconv.Itoa(x), "-Y", strconv.Itoa(y), "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "--"}
+	_, err = c.output(append(args, command...)...)
+	return err
+}
+
+// Popup runs command (words, run without a shell) in folder dir, in a
+// popup over the whole of the nested client, and returns once it has
+// exited, which closes the popup. While it's open, keys typed in the nested
+// client go to it alone.
+func (c *Client) Popup(dir string, command []string) error {
+	if c.Nested == "" {
+		return errors.New("no nested client to pop up over")
+	}
+	args := []string{"display-popup", "-c", c.Nested, "-E", "-w", "100%", "-h", "100%", "-d", dir, "--"}
+	_, err := c.output(append(args, command...)...)
+	return err
 }
 
 // Attach runs the nested client on this process's terminal: a tmux client

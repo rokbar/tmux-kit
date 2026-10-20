@@ -31,6 +31,10 @@ type Host interface {
 	// Hide hides the sidebar, giving the right side the whole window and
 	// focus, until the sidebar gets focus again.
 	Hide() error
+	// ThenFocusSidebar is command (words), then a command that focuses the
+	// sidebar: for a program the normal server runs, so that focus comes
+	// back once it quits.
+	ThenFocusSidebar(command []string) []string
 }
 
 // Normal is what the sidebar asks of the normal tmux server.
@@ -51,6 +55,15 @@ type Normal interface {
 	// before, else the most recent other one), and returns its id; with no
 	// other session, tmux.ErrNoOtherSession.
 	ShowLast() (string, error)
+	// Version is its tmux version, e.g. 3.7c.
+	Version() (string, error)
+	// Float runs command (words) in folder dir in a floating pane over the
+	// window the right side shows, with focus in it, and returns once it
+	// has started.
+	Float(dir string, command []string) error
+	// Popup runs command (words) in folder dir in a popup over the right
+	// side, and returns once it has exited.
+	Popup(dir string, command []string) error
 }
 
 // Repos finds which git repo a folder is in.
@@ -68,6 +81,9 @@ type Wt interface {
 	// project whose main clone is mainClone, without showing it: one with
 	// wt's default name and usual setup, unless there's one already.
 	Open(mainClone, path string) error
+	// GitUICommand is the command line (words) that runs the git UI in the
+	// main clone or worktree at path, on a terminal of its own.
+	GitUICommand(path string) ([]string, error)
 }
 
 // Clients are what the sidebar talks to.
