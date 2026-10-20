@@ -212,15 +212,15 @@ func (d Removing) wrap(text, breakpoints string) []string {
 // short popup, lines are cut so that last still shows.
 func (d Removing) prompt(lines, last []string) tea.View {
 	if d.height > 0 {
-		lines = AtMost(max(0, d.height-len(last)-1), lines)
+		lines = atMost(max(0, d.height-len(last)-1), lines)
 	}
 	shown := make([]string, 0, len(lines)+len(last)+1)
 	for _, l := range lines {
-		shown = append(shown, " "+OneLine(l, d.width-2))
+		shown = append(shown, " "+oneLine(l, d.width-2))
 	}
 	shown = append(shown, "")
 	for i, l := range last {
-		l = OneLine(l, d.width-2)
+		l = oneLine(l, d.width-2)
 		if i == len(last)-1 {
 			l = "\x1b[2m" + l + "\x1b[0m"
 		}

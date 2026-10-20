@@ -12,7 +12,7 @@ import (
 
 	"github.com/rokbar/tmux-kit/wtui/internal/detail"
 	"github.com/rokbar/tmux-kit/wtui/internal/dialog"
-	gitrepo "github.com/rokbar/tmux-kit/wtui/internal/repo"
+	"github.com/rokbar/tmux-kit/wtui/internal/repo"
 	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
 	"github.com/rokbar/tmux-kit/wtui/internal/tfolder"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
@@ -82,7 +82,7 @@ func runProject(args []string) error {
 		return dialog.Say("usage: wtui project [-d] <projects root>")
 	}
 	root := args[0]
-	projects, err := gitrepo.Lookup{}.Projects(root)
+	projects, err := repo.Lookup{}.Projects(root)
 	none := func(why string) error {
 		return showPage("No projects to open: "+why, "",
 			"p offers the folders in the projects root. To have it offer",
@@ -116,7 +116,7 @@ func runProject(args []string) error {
 
 // openProject opens p's session, through wt for a git repo and t for a plain
 // folder, and switches the client this runs in to it, unless detach.
-func openProject(p gitrepo.Project, detach bool) error {
+func openProject(p repo.Project, detach bool) error {
 	exe, _ := os.Executable()         // without it, wt and t are looked for only at $WT_BIN and on PATH
 	path, err := filepath.Abs(p.Path) // so wt takes it for a path, not a branch
 	switch {

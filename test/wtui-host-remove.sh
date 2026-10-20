@@ -31,8 +31,11 @@ tmux set -p -t "=review:0.0" @agent_state working
 echo wip >"$tmp/api--fix/wip.txt"
 
 launch t1 "$tmp/api--fix"
-has() { case "$(sidebar_text t1)" in *"$1"*) ;; *) return 1 ;; esac; }
-wait_until "the sidebar to show fix's sessions" eval 'has review && has notes && [ "$(showing t1)" = fix ]'
+# in_tree <name>: the sidebar has a row named <name> (fix: the worktree's,
+# by its branch, and its session's). Not just the text: once wt has removed
+# api--fix, the status line names it, and branch fix.
+in_tree() { sidebar_text t1 | grep -E "[▸▾] $1([[:space:]]|\$)" >/dev/null; }
+wait_until "the sidebar to show fix's sessions" eval 'in_tree review && in_tree fix && in_tree notes && [ "$(showing t1)" = fix ]'
 
 # shows <text>: the terminal shows <text>
 shows() { case "$(screen t1)" in *"$1"*) ;; *) return 1 ;; esac; }
@@ -52,7 +55,7 @@ $(screen t1)"
 type_in t1 y
 wait_until "the right side to show notes, focus on the sidebar" eval '[ "$(showing t1)" = notes ] && focus_on t1 sidebar'
 wait_until "the cursor to be on notes" eval '[[ "$(cursor_row t1)" == *notes ]]'
-wait_until "the tree to drop api--fix and its sessions" eval '! has review && ! has fix'
+wait_until "the tree to drop api--fix and its sessions" eval '! in_tree review && ! in_tree fix'
 squeezed() { tr -d ' \n'; }
 wait_until "the status line to say what wt did" eval '[[ "$(sidebar_text t1 | squeezed)" == *"wt:removed"* ]]'
 [ ! -e "$tmp/api--fix" ] || fail "api--fix's folder is still there"

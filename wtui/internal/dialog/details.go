@@ -79,18 +79,18 @@ func (d details) View() tea.View {
 	case d.read.err != nil:
 		// wrapped, since it's the whole story
 		wrapped := ansi.Wrap(d.read.err.Error(), max(1, d.width-2), "")
-		lines = append(lines, AtMost(room, strings.Split(wrapped, "\n"))...)
+		lines = append(lines, atMost(room, strings.Split(wrapped, "\n"))...)
 	default:
 		g := d.read.details
-		lines = append(lines, Fit(room, Section{Heading: devURL}, Section{Heading: Upstream(g)},
-			List("changes", g.Changes), List("commits", g.Commits))...)
+		lines = append(lines, fitIn(room, section{Heading: devURL}, section{Heading: upstream(g)},
+			list("changes", g.Changes), list("commits", g.Commits))...)
 	}
 	return view(lines, d.width, d.height)
 }
 
-// Upstream says how far a worktree is ahead of and behind its upstream, or
+// upstream says how far a worktree is ahead of and behind its upstream, or
 // that it has none, so isn't pushed.
-func Upstream(d detail.Details) string {
+func upstream(d detail.Details) string {
 	switch {
 	case d.Upstream == "":
 		return "not pushed"
@@ -104,29 +104,29 @@ func Upstream(d detail.Details) string {
 	return "up to date with " + d.Upstream
 }
 
-// Section is a part of what's shown about a worktree: a heading, and items
+// section is a part of what's shown about a worktree: a heading, and items
 // under it.
-type Section struct {
+type section struct {
 	Heading string
 	Items   []string
 }
 
-// List is items under a heading saying what they are, or just a heading
+// list is items under a heading saying what they are, or just a heading
 // saying there are none.
-func List(what string, items []string) Section {
+func list(what string, items []string) section {
 	if len(items) == 0 {
-		return Section{Heading: "no " + what}
+		return section{Heading: "no " + what}
 	}
-	return Section{Heading: what + ":", Items: items}
+	return section{Heading: what + ":", Items: items}
 }
 
-// Fit lays sections out in at most room lines (any number if room is
+// fitIn lays sections out in at most room lines (any number if room is
 // negative): each heading, with as many of its items as there's room for
 // indented under it. The room under the headings is shared out a line at a
 // time to each section in turn, so a short one leaves the rest to longer ones.
 // A section that's cut ends with a line saying how many more items it has: its
 // heading, if it has no room for any.
-func Fit(room int, sections ...Section) []string {
+func fitIn(room int, sections ...section) []string {
 	shares := make([]int, len(sections))
 	left := room - len(sections) // the lines under the headings
 	for more := true; more; {
@@ -152,5 +152,5 @@ func Fit(room int, sections ...Section) []string {
 			lines = append(lines, "  "+item)
 		}
 	}
-	return AtMost(room, lines)
+	return atMost(room, lines)
 }

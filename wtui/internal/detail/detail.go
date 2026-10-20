@@ -1,5 +1,5 @@
-// Package detail reads what wtui's detail pane shows about the main clone or
-// a worktree, with read-only git run in its folder alone.
+// Package detail reads what wtui's details dialog (i) shows about the main
+// clone or a worktree, with read-only git run in its folder alone.
 package detail
 
 import (
@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Details is what the detail pane shows about the main clone or a worktree.
+// Details is what the details dialog shows about the main clone or a worktree.
 type Details struct {
 	// Changes is its changed files, a line each as git's short status shows
 	// them, e.g. " M f" or "?? new.txt"; none when it's clean.

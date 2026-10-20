@@ -12,10 +12,35 @@ defaults:
     shell: bash
 
 jobs:
-  bash-tests:
-    name: bash tests (test/*.sh)
-    runs-on: ubuntu-latest
+  test:
+    # Every test, the Go tests and test/*.sh, on each tmux. wtui needs 3.6
+    # (tmux.MinVersion): below it, the end-to-end tests (test/wtui-host*.sh)
+    # skip, and wt and t are tested alone. 3.6 has no floating panes, so the
+    # git UI pops up; 3.7 and 3.8 float it, each placed its own way.
+    name: tests on tmux ${{ matrix.tmux }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # apt's tmux: Ubuntu 24.04's, older than wtui's minimum
+          - tmux: '3.4'
+            os: ubuntu-24.04
+          # apt's tmux: Ubuntu 26.04's, wtui's minimum. The package is 3.6a,
+          # but its tmux -V says 3.6.
+          - tmux: '3.6'
+            os: ubuntu-26.04
+          # built from the release tarball, which upstream publishes no
+          # checksum for: these are the digests GitHub lists for the assets
+          - tmux: 3.7c
+            os: ubuntu-24.04
+            sha256: 7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf
+          - tmux: '3.8'
+            os: ubuntu-24.04
+            sha256: e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e
     env:
+      TMUX_VERSION: ${{ matrix.tmux }}
       # the picker needs fzf >= 0.60 (--accept-nth); distro packages are older
       FZF_VERSION: 0.74.5
     steps:
@@ -23,7 +48,52 @@ jobs:
 
       # jq: test/agent-state-plugin.sh reads the plugin's hooks.json
       - name: Install tmux, git and jq
+        if: ${{ !matrix.sha256 }}
         run: sudo apt-get update && sudo apt-get install -y tmux git jq
+
+      # libevent and ncurses are tmux's at run time too, so they're installed
+      # even when the build is cached
+      - name: Install git, jq and what tmux builds with
+        if: ${{ matrix.sha256 }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git jq build-essential pkg-config bison libevent-dev libncurses-dev
+
+      - name: Cache tmux ${{ matrix.tmux }}
+        if: ${{ matrix.sha256 }}
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/tmux
+          key: tmux-${{ matrix.tmux }}-${{ matrix.os }}-${{ runner.arch }}
+
+      - name: Build tmux ${{ matrix.tmux }} from its release tarball
+        if: ${{ matrix.sha256 && steps.tmux-cache.outputs.cache-hit != 'true' }}
+        working-directory: ${{ runner.temp }}
+        env:
+          TMUX_SHA256: ${{ matrix.sha256 }}
+        run: |
+          tarball="tmux-$TMUX_VERSION.tar.gz"
+          curl -fsSLO "https://github.com/tmux/tmux/releases/download/$TMUX_VERSION/$tarball"
+          echo "$TMUX_SHA256  $tarball" | sha256sum --check
+          tar -xzf "$tarball"
+          cd "tmux-$TMUX_VERSION"
+          ./configure --prefix="$HOME/tmux"
+          make -j"$(nproc)"
+          make install
+
+      - name: Put tmux ${{ matrix.tmux }} first on PATH
+        if: ${{ matrix.sha256 }}
+        run: echo "$HOME/tmux/bin" >>"$GITHUB_PATH"
+
+      # so a leg never passes on some other tmux than its name says
+      - name: Check that tmux is ${{ matrix.tmux }}
+        run: |
+          tmux -V
+          if [ "$(tmux -V)" != "tmux $TMUX_VERSION" ]; then
+            echo "::error::want tmux $TMUX_VERSION, got $(tmux -V)"
+            exit 1
+          fi
 
       - name: Install fzf from its GitHub release
         working-directory: ${{ runner.temp }}
@@ -36,11 +106,22 @@ jobs:
           sudo tar -xzf "$tarball" -C /usr/local/bin fzf
           fzf --version
 
-      # the whole-stack tests (test/wtui-*.sh) build wtui; without Go they skip
+      # the end-to-end tests build wtui; without Go they skip
       - uses: actions/setup-go@v7
         with:
           go-version-file: wtui/go.mod
           cache-dependency-path: wtui/go.sum
+
+      - name: go vet
+        working-directory: wtui
+        run: go vet ./...
+
+      # the tmux client's tests run their own tmux server, and the wt
+      # client's the real bin/wt, whose sessions need tmux; tests that need a
+      # newer tmux than this one skip
+      - name: go test
+        working-directory: wtui
+        run: go test ./...
 
       - name: Run test/*.sh
         run: |
@@ -61,26 +142,3 @@ jobs:
             echo "::error::failed: ${failed[*]}"
             exit 1
           fi
-
-  go-test:
-    name: wtui (go test)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: wtui
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: wtui/go.mod
-          cache-dependency-path: wtui/go.sum
-
-      # the wt client's tests run the real bin/wt, whose sessions need tmux
-      # (without it, those tests skip)
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
-
-      - run: go vet ./...
-
-      - run: go test ./...

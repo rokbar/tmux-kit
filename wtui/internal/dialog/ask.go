@@ -57,13 +57,13 @@ func (a ask) View() tea.View {
 		lines = append(lines, strings.Split(l, "\n")...)
 	}
 	if a.height > 0 {
-		lines = AtMost(a.height-2, lines)
+		lines = atMost(a.height-2, lines)
 	}
 	shown := make([]string, 0, len(lines)+2)
 	for _, l := range lines {
-		shown = append(shown, " "+OneLine(l, a.width-2))
+		shown = append(shown, " "+oneLine(l, a.width-2))
 	}
-	shown = append(shown, "", " \x1b[2m"+OneLine("y: "+a.yes+"   n/q/esc: cancel", a.width-2)+"\x1b[0m")
+	shown = append(shown, "", " \x1b[2m"+oneLine("y: "+a.yes+"   n/q/esc: cancel", a.width-2)+"\x1b[0m")
 	v := tea.NewView(strings.Join(shown, "\n"))
 	v.AltScreen = true
 	return v

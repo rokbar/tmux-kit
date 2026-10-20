@@ -12,7 +12,6 @@
 //	wtui -S <socket> right [<session>] the right side's wrapper, in its right pane
 //	wtui press <key>                   has the sidebar press a held key, for the
 //	                                   host's bindings
-//	wtui popup                         the old popup, kept until the host replaces it
 //
 // and the sidebar runs its dialogs in popups:
 //
@@ -38,10 +37,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/browser"
-	"github.com/rokbar/tmux-kit/wtui/internal/detail"
 	"github.com/rokbar/tmux-kit/wtui/internal/editor"
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
-	gitrepo "github.com/rokbar/tmux-kit/wtui/internal/repo" // the popup has its own repo
+	"github.com/rokbar/tmux-kit/wtui/internal/repo"
 	"github.com/rokbar/tmux-kit/wtui/internal/sidebar"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
@@ -67,8 +65,6 @@ func main() {
 		// The sidebar's failures are the sidebar's to show, and the host's
 		// bindings make sure nothing shows of this.
 		err = host.Press(flag.Arg(1))
-	case "popup":
-		err = runPopup()
 	case "details":
 		err = runDetails(flag.Arg(1), flag.Arg(2), flag.Arg(3))
 	case "pick":
@@ -122,7 +118,7 @@ func runSidebar(socket string) error {
 	}
 	watch := normal.Watch()
 	c := sidebar.Clients{
-		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
+		Host: h, Normal: normal, Repos: repo.Lookup{}, Wt: wt.New(exe),
 		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe, Socket: socket,
 		ProjectsRoot: normal.ProjectsRoot(),
 	}
@@ -146,23 +142,4 @@ func runSidebar(socket string) error {
 	})
 	_, err = p.Run()
 	return errors.Join(err, watch.Close(), h.Close())
-}
-
-// runPopup is the popup the host replaces, unused by the launcher.
-func runPopup() error {
-	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
-	var repoDir string
-	cwd, findErr := os.Getwd()
-	if findErr == nil {
-		repoDir, findErr = findRepo(cwd)
-	}
-	final, err := tea.NewProgram(newModel(wt.New(exe), detail.Reader{}, browser.Opener{}, tmuxClient{}, repoDir, findErr)).Run()
-	if err != nil {
-		return err
-	}
-	// Run has restored the terminal, so tmux can have it
-	if m, ok := final.(model); ok && m.handoff != "" {
-		return handOff(m.handoff)
-	}
-	return nil
 }

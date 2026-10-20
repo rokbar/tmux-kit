@@ -4,15 +4,15 @@
 # and comes back, it's still there after showing another session and coming
 # back, and quitting it gives focus back to the sidebar. Without a git UI
 # configured, wt's message shows until a key. Floating panes are new in tmux
-# 3.7, so this skips below that.
+# 3.7: below that, g pops the git UI up over the right side instead, which
+# closes when it quits, with focus back on the sidebar.
 set -euo pipefail
 # shellcheck source=test/lib/host.sh
 . "$(dirname "$0")/lib/host.sh"
 need_host_tmux
-v="$(tmux -V)"
+v="$(tmux -V)" floats=1
 if [[ $v =~ ([0-9]+)\.([0-9]+) ]] && ((BASH_REMATCH[1] * 100 + BASH_REMATCH[2] < 307)); then
-  echo "skip: $(basename "$0"): floating panes are new in tmux 3.7, and this is $v (g pops up instead)"
-  exit 0
+  floats=""
 fi
 build_wtui
 
@@ -77,6 +77,32 @@ launch t1 "$tmp/api--fix"
 wait_until "the sidebar to show fix active" eval 'sidebar_text t1 | grep -Fx "2   ▾ fix" >/dev/null'
 type_in t1 Escape
 wait_until "esc to focus the right side" focus_on t1 right
+
+if [ -z "$floats" ]; then
+  # From the right, the wtui key then g: fix's git UI pops up over the right
+  # side, with focus there, and typing lands in it.
+  type_in t1 'C-\' g
+  wait_until "C-\\ g to pop the git UI up on the right side" on_the_right "stub git UI in [api--fix]"
+  ran_in "$tmp/api--fix" || fail "the git UI ran in $(cat "$tmp/ran-in"), want $tmp/api--fix"
+  focus_on t1 right || fail "with the git UI up, focus is on the $(focus t1)"
+  type_in t1 -l abc
+  wait_until "what's typed to land in the git UI" on_the_right abc
+  # Quitting it closes the popup, and focus goes back to the sidebar.
+  type_in t1 q
+  wait_until "q to close the git UI" eval '! on_the_right "stub git UI in"'
+  wait_until "focus to go back to the sidebar" focus_on t1 sidebar
+  on fix || fail "after the git UI quit, the right side shows $(showing t1), want fix"
+  # With no git UI configured, wt's message stays in the popup until a key.
+  echo "WT_GIT_UI=" >"$WT_CONFIG"
+  type_in t1 g
+  wait_until "g to show wt's message" on_the_right "no git UI configured"
+  on_the_right "press any key to close" || fail "wt's message doesn't say a key closes it"
+  type_in t1 x
+  wait_until "a key to close wt's message" eval '! on_the_right "no git UI configured"'
+  wait_until "focus to go back to the sidebar after wt's message" focus_on t1 sidebar
+  echo "ok: wtui-host-git-ui (a popup: floating panes are new in tmux 3.7, and this is $v)"
+  exit 0
+fi
 
 # From the right, the wtui key then g: fix's git UI floats over the right
 # side, one cell in from each edge of fix's window, with focus in it.

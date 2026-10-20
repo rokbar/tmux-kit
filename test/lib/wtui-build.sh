@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Sourced by the tests that build wtui (after set -euo pipefail), through
-# test/lib/wtui.sh or test/lib/host.sh, in place of test/lib/sandbox.sh, which
-# it sources. Defines build_wtui and stop_wtui; on exit, stops wtui before the
-# sandbox's cleanup.
+# test/lib/host.sh, in place of test/lib/sandbox.sh, which it sources.
+# Defines build_wtui and stop_wtui; on exit, stops wtui before the sandbox's
+# cleanup.
 
 # build_wtui keeps Go's caches inside the sandbox, so it writes nothing
 # outside it. It takes wtui's modules from the user's module download cache

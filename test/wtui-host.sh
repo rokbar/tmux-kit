@@ -73,10 +73,14 @@ type_in t1 c
 wait_until "C-b c from the sidebar to make a window in beta" eval '[ "$(windows beta)" = 2 ]'
 
 # A click focuses a side; dragging the border (column 31) resizes the sidebar.
+# Clicks are more than double-click-time (300 ms) apart: tmux before 3.7
+# takes a second click within it for a double click, even on another pane.
 click t1 5 10
 wait_until "a click on the sidebar to focus it" focus_on t1 sidebar
+sleep 0.4
 click t1 80 10
 wait_until "a click on the right side to focus it" focus_on t1 right
+sleep 0.4
 drag t1 31 10 25 10
 wait_until "dragging the border to make the sidebar 24 columns wide" eval '[ "$(sidebar_width t1)" = 24 ]'
 

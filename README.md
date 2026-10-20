@@ -1,7 +1,9 @@
 # tmux-kit
 
 tmux config plus `wt` (one git worktree and tmux session per branch) and `t`
-(one tmux session per project folder).
+(one tmux session per project folder). Optional: [wtui](#wtui), which you
+launch from a plain terminal to work in a sidebar of every project, worktree
+and session beside the session you're in.
 
 ## Install
 
@@ -16,10 +18,10 @@ tmux-kit/install.sh
 into the clone (existing files go to `*.bak`) and clones the tmux plugins.
 Update with `git pull`. `~/.local/bin` must be on `PATH`.
 
-Optional: `tmux-kit/install.sh --wtui` also installs wtui, a worktree dashboard
-on `prefix w`. It downloads the latest release for your OS and CPU to
-`~/.local/bin/wtui` and checks its checksum; re-run it to update. Or build it
-from the main branch with Go:
+Optional: `tmux-kit/install.sh --wtui` also installs [wtui](#wtui). It
+downloads the latest release for your OS and CPU to `~/.local/bin/wtui` and
+checks its checksum; re-run it to update. Or build it from the main branch
+with Go:
 `GOBIN="$HOME/.local/bin" go install github.com/rokbar/tmux-kit/wtui@latest`.
 
 Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
@@ -30,7 +32,6 @@ Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 | --- | --- |
 | `prefix W` | fzf branch picker → worktree + session (`alt-enter`: new branch, `alt-o`: new branch from origin's default branch) |
 | `prefix X` | remove the worktree you're in (asks first, refuses on unsaved work) |
-| `prefix w` | wtui, the worktree dashboard (only with wtui installed; `prefix s` covers tmux's window list) |
 | `prefix s` | sessions, most recently used first |
 | `prefix e` | open the git root in your editor (`code`, or `$TMUX_KIT_EDITOR`) |
 | `prefix C-s` / `C-r` | save / restore sessions (also auto-saved every 15 min and restored on start) |
@@ -119,6 +120,13 @@ To use a different editor for `prefix e`, put
   `X` run wt. Exits non-zero if tmux, git or fzf is missing (lsof is optional).
 - `wt --help`: the commands and options in brief, plus examples.
 
+Inside tmux, `t` and `wt` switch the tmux client to the session they open
+(the picker's included). With `TMUX_KIT_CLIENT` set to a client's name
+(`#{client_name}`), they switch that client instead of the one tmux takes for
+current, and `wt rm` switches no client (wtui's moves on by itself when its
+session ends). wtui sets it in its popups, where tmux's current client is the
+one used last, which may be another terminal's.
+
 ## Config
 
 `wt` reads `~/.config/wt/config.sh` (or `$WT_CONFIG`). See
@@ -126,7 +134,141 @@ To use a different editor for `prefix e`, put
 separator, remote, git UI window, dev script and port, and the files that get
 copied or shared between worktrees.
 
-## Claude Code plugin
+## wtui
+
+Optional (see [Install](#install)). Run `wtui` in a plain terminal, not inside
+tmux: on the left, the sidebar, a tree of every project that has a session,
+with its worktrees, its sessions and their windows; on the right, the active
+session. The right side is a tmux client on your normal tmux server, so
+everything there (`C-b` and your bindings, colours, the mouse, copy mode and
+the clipboard) is plain tmux, and your sessions stay ordinary sessions: they
+outlive wtui, and resurrect and continuum keep saving them. Each launch is
+its own: two terminals can show two sessions, and closing the terminal window
+ends that wtui and leaves nothing behind.
+
+Needs tmux 3.6 or newer (wtui says so, naming the version it needs). The git
+UI floats over the session with tmux 3.7 or newer, and pops up over it before
+that.
+
+### Launching
+
+`wtui` starts on:
+
+1. the session you used last in the worktree or main clone you run it in (or
+   a folder inside it);
+2. else the session started in the folder you're in, or the nearest folder
+   above it, outside git;
+3. else the session you used last;
+4. with no session at all (or no tmux server, e.g. after a reboot), a new one
+   for the folder, as `t -d` names it. That starts the server, so continuum
+   restores your saved sessions into the sidebar.
+
+Inside tmux, `wtui` refuses: there, `prefix s` and `prefix W` switch sessions.
+`q` in the sidebar or `prefix d` on the right closes wtui, without asking: the
+sessions live on. When the active session ends, the right side shows the
+session you used last, with focus on the sidebar. When the last one ends, the
+right side says so until a session exists again (`p` opens one).
+
+### The sidebar
+
+Projects are in alphabetical order. A git project lists its main clone first,
+then its worktrees in git's order, and a worktree with one session is one row,
+named after the session (several sessions go under a row for the worktree).
+Other projects list their sessions by name. Sessions unfold into their
+windows; the active session shows its windows, and its row, worktree and
+project are highlighted. The first nine sessions are numbered in the margin.
+
+- dimmed: a worktree with no session (`enter` opens one); `✗`: a missing
+  worktree;
+- after the name: `±` dirty, `:3001` the dev URL's port;
+- at the right edge, each row's most urgent agent state beneath it: `!` (red)
+  needs you, `*` (yellow) working, `✓` (dim green) done, until its window is
+  shown (see [the plugin](#claude-code-plugin)).
+
+The tree follows tmux within a second, wherever sessions and windows change
+(`wt` or `t` in a session, another terminal). `±` and `:port` refresh every
+10 s and after each action; `r` rebuilds everything now. At the bottom, the
+status line says why a key doesn't apply to the row, or what wt said after an
+action, above `? shortcuts`.
+
+### Keys
+
+The **wtui key** is `C-\` (Ctrl-backslash). Alone, it switches between the
+sidebar and the session (showing a hidden sidebar). In the sidebar, press a
+key alone; in a session, press the wtui key, then the key, and it acts on the
+active session: `C-\ g` is the git UI of the session you're in. `C-b` stays
+tmux's prefix on the right; in the sidebar, it moves focus right and passes
+the prefix on, so `C-b s` works there too.
+
+| Key | Action |
+| --- | --- |
+| `j` `k` `↓` `↑` | move the cursor (moving it never changes the right side) |
+| `l` `→`, `h` `←`, `space` | unfold (or go to the first row under it), fold (or go to the parent), fold or unfold |
+| `enter` | show the session or window on the right, with focus there; on a worktree with no session, open its session through wt first; on a project or a worktree with several sessions, fold or unfold |
+| `1`–`9` | show session N |
+| `tab` | show the last session; again to come back |
+| `]` / `[` | show the next / previous session in the active session's project, wrapping. After the wtui key, `] ] ]` repeats without it |
+| `e` | your editor on the worktree or folder (`TMUX_KIT_EDITOR`, as for `prefix e`; default VS Code) |
+| `o` | the dev URL in your browser |
+| `g` | your git UI (`wt git-ui`) in the worktree, floating over the session's window. The wtui key works inside it, it's still there when you come back to that session, and quitting it puts focus on the sidebar. Before tmux 3.7, it pops up over the right side instead |
+| `n` | the picker, from the worktree, over the right side; what it opens becomes the active session |
+| `i` | the worktree's details: branch, dev URL, changed files, last 10 commits, ahead/behind or "not pushed" |
+| `x` | remove the worktree (`wt rm`), after a dialog naming every session and agent that ends. wt's safety refusal shows there, with an offer to force |
+| `d` | kill the session or window under the cursor, after a dialog naming the agents that end. Its worktree stays |
+| `p` | open a project from the projects root: fzf over its folders (worktrees left out). A git repo opens through `wt`, a plain folder through `t` |
+| `z` | hide the sidebar; the wtui key brings it back |
+| `r` | rebuild the tree |
+| `?` | every shortcut |
+| `esc` | back to the right side, as the wtui key |
+| `q` | close wtui |
+
+Keys typed straight after a jump (`1`–`9`, `tab`, `]`, `[`) or `enter` land in
+the session it shows, in the sidebar as after the wtui key: wtui holds them
+until the switch is done. For that, its host binds `enter`, the digits, `tab`,
+`]`, `[`, `esc`, `C-b` and `z` itself, and in a session passes them on
+unchanged.
+
+`n`, `i`, `x`, `d` and `p` open popups over the right side, which take every
+key until they close (so the wtui key can't leave them); focus then goes back
+to the sidebar. Mouse: click a side to focus it, or a row to move the cursor
+there; drag the border to resize the sidebar.
+
+### Settings
+
+wtui's settings are tmux options on your normal server, read when it
+launches. Put them in `~/.tmux.local.conf`:
+
+```
+# the wtui key, as tmux names keys (default C-\)
+set -g @wtui-key 'C-\'
+# the sidebar's width in columns (default 30)
+set -g @wtui-width 30
+# the folder p offers projects from (default ~/Projects)
+set -g @wtui-projects-root ~/code
+```
+
+Dragging the border sets the width for this launch, and resizing the
+terminal keeps it. While the terminal is narrower than 100 columns, the
+sidebar hides, and it comes back once it's wider, unless you hid it with `z`.
+
+### Terminal chords
+
+wtui has no one-key shortcuts like `cmd+1` of its own: have your terminal
+type the wtui key and the key for you. `\x1c` is `C-\`. In Ghostty
+(`~/.config/ghostty/config`):
+
+```
+keybind = cmd+1=text:\x1c1
+keybind = cmd+2=text:\x1c2
+keybind = cmd+3=text:\x1c3
+```
+
+These replace Ghostty's own `cmd+1`–`cmd+3` (go to tab N). Other terminals
+have the same, under a name like "send text" or "send hex codes" (for
+`cmd+1`: `0x1c 0x31`). With another `@wtui-key`, send that key's code
+instead.
+
+### Claude Code plugin
 
 Optional: the `agent-state` plugin keeps each Claude Code agent's state on its
 tmux pane, for wtui to show, or for you with `tmux show -p`:
