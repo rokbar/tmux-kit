@@ -67,22 +67,24 @@ func (m Model) shownWindow() string {
 // of each row: a space, then its mark.
 const agentColumn = 2
 
-// agentMarks are how the agent states show: needs you a red !, working a
-// yellow *, done a dim green ✓.
-var agentMarks = map[tmux.AgentState]struct {
+// agentLooks are how the agent states show: in the agent column, a mark in
+// its style (needs you a red !, working a yellow *, done a dim green ✓), and
+// in the dialogs, by name.
+var agentLooks = map[tmux.AgentState]struct {
 	mark  string
 	style []string
+	name  string
 }{
-	tmux.NeedsYou: {"!", []string{red}},
-	tmux.Working:  {"*", []string{yellow}},
-	tmux.Done:     {"✓", []string{dim, green}},
+	tmux.NeedsYou: {"!", []string{red}, "needs you"},
+	tmux.Working:  {"*", []string{yellow}, "working"},
+	tmux.Done:     {"✓", []string{dim, green}, "done"},
 }
 
 // agentMark is the agent column of a row whose agent state is state: a
 // space, then the state's mark, if it has one. On the cursor's row, both
 // are in reverse video too, as the rest of the row is.
 func agentMark(state tmux.AgentState, cursor bool) string {
-	a, ok := agentMarks[state]
+	a, ok := agentLooks[state]
 	if !ok {
 		a.mark = " "
 	}
@@ -106,7 +108,7 @@ func (m Model) endingAgents(in, session string, windows []*tree.Node) []string {
 		})
 		slices.SortFunc(here, func(a, b tmux.Agent) int { return cmp.Or(cmp.Compare(b.State, a.State), cmp.Compare(a.Pane, b.Pane)) })
 		for _, a := range here {
-			agents = append(agents, fmt.Sprintf("  %d %s: %s", w.Index, w.Name, stateNames[a.State]))
+			agents = append(agents, fmt.Sprintf("  %d %s: %s", w.Index, w.Name, agentLooks[a.State].name))
 		}
 	}
 	switch len(agents) {
@@ -117,6 +119,3 @@ func (m Model) endingAgents(in, session string, windows []*tree.Node) []string {
 	}
 	return append([]string{"The agents in " + in + " end too:"}, agents...)
 }
-
-// stateNames are the agent states, as the dialogs name them.
-var stateNames = map[tmux.AgentState]string{tmux.NeedsYou: "needs you", tmux.Working: "working", tmux.Done: "done"}
