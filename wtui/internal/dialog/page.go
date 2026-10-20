@@ -66,6 +66,41 @@ func view(lines []string, width, height int) tea.View {
 	return v
 }
 
+// prompt is the view of a dialog that asks something (Ask's, Remove's), in a
+// popup of width by height (unknown while 0): lines, then a blank line and
+// last, its last line dim, each line with a column either side. In a short
+// popup, lines are cut so that last still shows.
+func prompt(width, height int, lines, last []string) tea.View {
+	if height > 0 {
+		lines = atMost(max(0, height-len(last)-1), lines)
+	}
+	shown := make([]string, 0, len(lines)+len(last)+1)
+	for _, l := range lines {
+		shown = append(shown, " "+oneLine(l, width-2))
+	}
+	shown = append(shown, "")
+	for i, l := range last {
+		l = oneLine(l, width-2)
+		if i == len(last)-1 {
+			l = "\x1b[2m" + l + "\x1b[0m"
+		}
+		shown = append(shown, " "+l)
+	}
+	v := tea.NewView(strings.Join(shown, "\n"))
+	v.AltScreen = true
+	return v
+}
+
+// wrapTo is text's lines, wrapped to a popup width columns wide less a
+// column either side, once its width is known (more than 2), breaking words
+// at breakpoints (e.g. "/", for paths) as well as anywhere they must.
+func wrapTo(width int, text, breakpoints string) []string {
+	if width > 2 {
+		text = ansi.Wrap(text, width-2, breakpoints)
+	}
+	return strings.Split(text, "\n")
+}
+
 // atMost is the first room lines (all of them if room is negative).
 func atMost(room int, lines []string) []string {
 	if room < 0 {

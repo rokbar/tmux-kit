@@ -3,10 +3,8 @@ package dialog
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/wt"
 )
@@ -161,9 +159,9 @@ func (d Removing) View() tea.View {
 	case removingMode:
 		var lines []string
 		for _, l := range d.question {
-			lines = append(lines, d.wrap(l, "")...)
+			lines = append(lines, wrapTo(d.width, l, "")...)
 		}
-		return d.prompt(lines, removingNow)
+		return prompt(d.width, d.height, lines, removingNow)
 	case refusedMode:
 		lines, fit := d.reasons()
 		if fit < len(lines) {
@@ -171,9 +169,9 @@ func (d Removing) View() tea.View {
 			lines = append(lines[top:top+fit:top+fit],
 				fmt.Sprintf("↑/↓ j/k: scroll (lines %d–%d of %d)", top+1, top+fit, len(lines)))
 		}
-		return d.prompt(lines, forceKeys)
+		return prompt(d.width, d.height, lines, forceKeys)
 	}
-	return d.prompt(d.wrap(d.failure, "/"), failedKeys)
+	return prompt(d.width, d.height, wrapTo(d.width, d.failure, "/"), failedKeys)
 }
 
 // reasons is wt's reasons for refusing, wrapped to the popup, and how many
@@ -181,7 +179,7 @@ func (d Removing) View() tea.View {
 // them, or, if they don't all fit, one less than that, for a line saying
 // which are shown.
 func (d Removing) reasons() (lines []string, fit int) {
-	lines = d.wrap(d.refusal, "/")
+	lines = wrapTo(d.width, d.refusal, "/")
 	room := d.height - len(forceKeys) - 1
 	if d.height <= 0 || len(lines) <= room {
 		return lines, len(lines)
@@ -195,38 +193,4 @@ func (d Removing) scroll(by int) Removing {
 	lines, fit := d.reasons()
 	d.top = max(0, min(len(lines)-fit, d.top+by))
 	return d
-}
-
-// wrap is text's lines, wrapped to the popup less a column either side,
-// once its width is known, breaking words at breakpoints (e.g. "/", for
-// paths) as well as anywhere they must.
-func (d Removing) wrap(text, breakpoints string) []string {
-	if d.width > 2 {
-		text = ansi.Wrap(text, d.width-2, breakpoints)
-	}
-	return strings.Split(text, "\n")
-}
-
-// prompt is the dialog's view, laid out as Ask's: lines, then a blank line
-// and last, its last line dim, each line with a column either side. In a
-// short popup, lines are cut so that last still shows.
-func (d Removing) prompt(lines, last []string) tea.View {
-	if d.height > 0 {
-		lines = atMost(max(0, d.height-len(last)-1), lines)
-	}
-	shown := make([]string, 0, len(lines)+len(last)+1)
-	for _, l := range lines {
-		shown = append(shown, " "+oneLine(l, d.width-2))
-	}
-	shown = append(shown, "")
-	for i, l := range last {
-		l = oneLine(l, d.width-2)
-		if i == len(last)-1 {
-			l = "\x1b[2m" + l + "\x1b[0m"
-		}
-		shown = append(shown, " "+l)
-	}
-	v := tea.NewView(strings.Join(shown, "\n"))
-	v.AltScreen = true
-	return v
 }

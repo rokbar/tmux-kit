@@ -1,11 +1,6 @@
 package dialog
 
-import (
-	"strings"
-
-	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
-)
+import tea "charm.land/bubbletea/v2"
 
 // Ask is a dialog that asks question, its lines, until it's answered: y
 // answers yes, which does what yes says (e.g. kill), and n, q, esc and
@@ -45,26 +40,13 @@ func (a ask) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// View is the question, each line wrapped to the popup with a column either
-// side, then a blank line and the keys that answer it: as much of the
-// question as leaves room for those.
+// View is the question, each line wrapped to the popup, then a blank line and
+// the keys that answer it (see prompt): as much of the question as leaves
+// room for those.
 func (a ask) View() tea.View {
 	var lines []string
 	for _, l := range a.question {
-		if a.width > 2 {
-			l = ansi.Wrap(l, a.width-2, "")
-		}
-		lines = append(lines, strings.Split(l, "\n")...)
+		lines = append(lines, wrapTo(a.width, l, "")...)
 	}
-	if a.height > 0 {
-		lines = atMost(a.height-2, lines)
-	}
-	shown := make([]string, 0, len(lines)+2)
-	for _, l := range lines {
-		shown = append(shown, " "+oneLine(l, a.width-2))
-	}
-	shown = append(shown, "", " \x1b[2m"+oneLine("y: "+a.yes+"   n/q/esc: cancel", a.width-2)+"\x1b[0m")
-	v := tea.NewView(strings.Join(shown, "\n"))
-	v.AltScreen = true
-	return v
+	return prompt(a.width, a.height, lines, []string{"y: " + a.yes + "   n/q/esc: cancel"})
 }
