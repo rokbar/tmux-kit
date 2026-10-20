@@ -33,3 +33,9 @@ needn't know.
 
 - The keys that pick a session run in the host rather than in the sidebar
   program, so keys typed straight after a jump land in the new session.
+- Besides the wtui key, the host binds the keys after which focus can go
+  right (the jumps `1`–`9`, `Tab`, `]` and `[`, `Enter`, and `Esc`, `C-b`
+  and `z`) in its root table, acting only while the sidebar has focus: it has
+  the sidebar press the key and holds the keys typed after it until the key
+  is done, so keys typed ahead after a jump or `Enter` land in the session it
+  shows, not in the sidebar. Elsewhere they pass on as they are.
