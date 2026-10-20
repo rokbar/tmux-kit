@@ -206,6 +206,8 @@ type shown struct {
 	err     error
 }
 
+// hostDone is a request of the host, run with askHost, done: why it failed,
+// or nil.
 type hostDone struct{ err error }
 
 func (m Model) Init() tea.Cmd {
@@ -218,9 +220,9 @@ func (m Model) readActive() tea.Msg {
 	return Active{id, err}
 }
 
-// ask runs a request of the host in the background. An action (e.g. opening
-// the editor) runs with act instead.
-func ask(f func() error) tea.Cmd { return func() tea.Msg { return hostDone{f()} } }
+// askHost runs a request of the host in the background. An action (e.g.
+// opening the editor) runs with act instead.
+func askHost(f func() error) tea.Cmd { return func() tea.Msg { return hostDone{f()} } }
 
 // rebuild starts a build, unless one is running, in which case another
 // follows it.

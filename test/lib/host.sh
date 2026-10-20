@@ -1,9 +1,9 @@
 # shellcheck shell=bash
 # Sourced by the end-to-end test/wtui-host-*.sh (after set -euo pipefail) in
-# place of test/lib/sandbox.sh, which it sources: the spec's seam 4. wtui,
-# built from wtui/, runs in fake terminals over the sandbox's tmux server,
-# which plays the user's normal server: bare `tmux` reaches it, since
-# TMUX_TMPDIR is private and TMUX unset.
+# place of test/lib/sandbox.sh, which it sources. They drive wtui from the
+# outside, as a user would: wtui, built from wtui/, runs in fake terminals
+# over the sandbox's tmux server, which plays the user's normal server: bare
+# `tmux` reaches it, since TMUX_TMPDIR is private and TMUX unset.
 #
 # A fake terminal is a session of another throwaway tmux server, the terminal
 # server (`term`): its one pane is the terminal, typed into with send-keys and

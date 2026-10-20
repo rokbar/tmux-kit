@@ -224,7 +224,7 @@ func (m Model) rebuildAll() (Model, tea.Cmd) {
 	return m.rebuild()
 }
 
-func (m Model) goRight() (Model, tea.Cmd)     { return m, ask(m.c.Host.FocusRight) }
-func (m Model) prefixRight() (Model, tea.Cmd) { return m, ask(m.c.Host.PrefixRight) }
-func (m Model) hide() (Model, tea.Cmd)        { return m, ask(m.c.Host.Hide) }
+func (m Model) goRight() (Model, tea.Cmd)     { return m, askHost(m.c.Host.FocusRight) }
+func (m Model) prefixRight() (Model, tea.Cmd) { return m, askHost(m.c.Host.PrefixRight) }
+func (m Model) hide() (Model, tea.Cmd)        { return m, askHost(m.c.Host.Hide) }
 func (m Model) quit() (Model, tea.Cmd)        { return m, tea.Quit }

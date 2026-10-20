@@ -97,10 +97,10 @@ func agentMark(state tmux.AgentState, cursor bool) string {
 
 // endingAgents are the lines of a dialog's question (d's, x's) that name the
 // agents ending with windows, rows of session (an id): a line saying the
-// agents in in (e.g. "it", a session's name) end too, then one line for
+// agents in where (e.g. "it", a session's name) end too, then one line for
 // each, by window, most urgent first: "  <index> <window>: <state>". A
 // linked window's agent is named once, in session. None if there are none.
-func (m Model) endingAgents(in, session string, windows []*tree.Node) []string {
+func (m Model) endingAgents(where, session string, windows []*tree.Node) []string {
 	var agents []string
 	for _, w := range windows {
 		here := slices.DeleteFunc(slices.Clone(m.src.Snapshot.Agents), func(a tmux.Agent) bool {
@@ -115,7 +115,7 @@ func (m Model) endingAgents(in, session string, windows []*tree.Node) []string {
 	case 0:
 		return nil
 	case 1:
-		return append([]string{"The agent in " + in + " ends too:"}, agents...)
+		return append([]string{"The agent in " + where + " ends too:"}, agents...)
 	}
-	return append([]string{"The agents in " + in + " end too:"}, agents...)
+	return append([]string{"The agents in " + where + " end too:"}, agents...)
 }

@@ -107,7 +107,7 @@ func (m Model) shortcuts() (Model, tea.Cmd) {
 	host := m.c.Host
 	w, h := dialog.PageSize(shortcutLines(m.key))
 	p := tmux.Popup{Title: " shortcuts ", Command: []string{m.c.Wtui, "shortcuts", m.key}}
-	return m, ask(func() error { return host.Popup(p, w, h) })
+	return m, askHost(func() error { return host.Popup(p, w, h) })
 }
 
 // shortcutLines is Shortcuts, for ?'s own action, which can't name it
