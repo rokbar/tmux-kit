@@ -15,9 +15,9 @@ import (
 )
 
 // gitWorktreeOf is the main clone or worktree, as wt lists it, that row n is
-// in, for a key that needs git there. A missing one has no folder, and a row
-// in none (a non-git project, a session in no worktree wt lists) has no git
-// worktree.
+// in, for a key that needs git there (g, i, n). A missing one has no folder,
+// and a row in none (a non-git project, a session in no worktree wt lists)
+// isn't in git as far as wt says: both get a hint.
 func gitWorktreeOf(n *tree.Node) (*wt.Worktree, hint) {
 	w := worktreeOf(n)
 	switch {
