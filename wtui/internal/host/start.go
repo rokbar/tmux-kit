@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/rokbar/tmux-kit/wtui/internal/repo"
 	"github.com/rokbar/tmux-kit/wtui/internal/tfolder"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
+	"github.com/rokbar/tmux-kit/wtui/internal/tree"
 )
 
 // Folder is the folder wtui is launched from, as git sees it.
@@ -43,15 +43,15 @@ func Starting(snap tmux.Snapshot, folder Folder) string {
 	}
 	var in, outside []tmux.Session // in the folder's worktree; holding it, outside git
 	for _, s := range snap.Sessions {
-		w := holder(worktrees, s.Path)
+		i := tree.Holder(worktrees, s.Path)
 		switch {
-		case w != "" && w == folder.Worktree:
+		case i >= 0 && worktrees[i] == folder.Worktree:
 			in = append(in, s)
-		case w == "" && s.Path != "" && within(folder.Path, s.Path):
+		case i < 0 && s.Path != "" && tree.Within(folder.Path, s.Path):
 			outside = append(outside, s)
 		}
 	}
-	if s := latest(in); s != nil {
+	if s := tmux.Latest(in); s != nil {
 		return s.ID
 	}
 	// the nearest start folder is the longest
@@ -60,42 +60,13 @@ func Starting(snap tmux.Snapshot, folder Folder) string {
 		nearest = max(nearest, len(s.Path))
 	}
 	outside = slices.DeleteFunc(outside, func(s tmux.Session) bool { return len(s.Path) < nearest })
-	if s := latest(outside); s != nil {
+	if s := tmux.Latest(outside); s != nil {
 		return s.ID
 	}
-	if s := latest(snap.Sessions); s != nil {
+	if s := tmux.Latest(snap.Sessions); s != nil {
 		return s.ID
 	}
 	return ""
-}
-
-// latest is the session with the latest activity, the first of those used
-// in the same second, or nil if there's none.
-func latest(sessions []tmux.Session) *tmux.Session {
-	var best *tmux.Session
-	for i, s := range sessions {
-		if best == nil || s.Activity.After(best.Activity) {
-			best = &sessions[i]
-		}
-	}
-	return best
-}
-
-// holder is the folder of folders that holds dir, the longest such, or "" if
-// none does.
-func holder(folders []string, dir string) string {
-	at := ""
-	for _, f := range folders {
-		if within(dir, f) && len(f) > len(at) {
-			at = f
-		}
-	}
-	return at
-}
-
-// within says whether dir is folder or inside it.
-func within(dir, folder string) bool {
-	return dir == folder || strings.HasPrefix(dir, strings.TrimSuffix(folder, "/")+"/")
 }
 
 // launchSession is the session the launcher's right side starts on, for the

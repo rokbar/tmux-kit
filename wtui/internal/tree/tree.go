@@ -154,10 +154,14 @@ func rollUp(n *Node, agents map[string]tmux.AgentState) tmux.AgentState {
 // worktree's row alone. A worktree's row is named after its branch, else
 // its folder.
 func (t *Tree) worktrees(p *Node, rows []wt.Worktree) []*Node {
+	folders := make([]string, len(rows))
+	for i, r := range rows {
+		folders[i] = r.Path
+	}
 	in := make([][]*Node, len(rows)) // each worktree's sessions
 	var children, elsewhere []*Node
 	for _, s := range p.Children {
-		if i := holder(rows, s.Path); i >= 0 {
+		if i := Holder(folders, s.Path); i >= 0 {
 			in[i] = append(in[i], s)
 		} else {
 			elsewhere = append(elsewhere, s)
@@ -184,20 +188,21 @@ func (t *Tree) worktrees(p *Node, rows []wt.Worktree) []*Node {
 	return append(children, elsewhere...)
 }
 
-// holder is the index of the row whose folder holds dir, the longest such,
-// or -1 if none does.
-func holder(rows []wt.Worktree, dir string) int {
+// Holder is the index of the folder of folders that holds dir, the longest
+// such (the first of those as long), or -1 if none does: a session belongs to
+// the worktree whose folder holds its start folder.
+func Holder(folders []string, dir string) int {
 	at := -1
-	for i, r := range rows {
-		if within(dir, r.Path) && (at < 0 || len(r.Path) > len(rows[at].Path)) {
+	for i, f := range folders {
+		if Within(dir, f) && (at < 0 || len(f) > len(folders[at])) {
 			at = i
 		}
 	}
 	return at
 }
 
-// within says whether dir is folder or inside it.
-func within(dir, folder string) bool {
+// Within says whether dir is folder or inside it.
+func Within(dir, folder string) bool {
 	return dir == folder || strings.HasPrefix(dir, strings.TrimSuffix(folder, "/")+"/")
 }
 

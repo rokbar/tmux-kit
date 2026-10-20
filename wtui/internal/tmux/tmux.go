@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -308,16 +309,24 @@ func (c *Client) ShowLast() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var last *Session
-	for i, s := range snap.Sessions {
-		if s.ID != active && (last == nil || s.Activity.After(last.Activity)) {
-			last = &snap.Sessions[i]
-		}
-	}
+	last := Latest(slices.DeleteFunc(snap.Sessions, func(s Session) bool { return s.ID == active }))
 	if last == nil {
 		return "", ErrNoOtherSession
 	}
 	return last.ID, c.Show(last.ID, "")
+}
+
+// Latest is the session of sessions with the most recent activity, or nil if
+// there's none. Of sessions used in the same second (all tmux says), it's
+// the first.
+func Latest(sessions []Session) *Session {
+	var best *Session
+	for i, s := range sessions {
+		if best == nil || s.Activity.After(best.Activity) {
+			best = &sessions[i]
+		}
+	}
+	return best
 }
 
 // Float runs command (words, run without a shell) in folder dir, in a

@@ -54,7 +54,7 @@ func (m Model) remove(r removable) (Model, tea.Cmd) {
 func (m Model) removeQuestion(w *wt.Worktree) string {
 	var ending []*tree.Node
 	for _, s := range m.tree.Sessions() {
-		if s.Path == w.Path || strings.HasPrefix(s.Path, w.Path+"/") {
+		if tree.Within(s.Path, w.Path) {
 			ending = append(ending, s)
 		}
 	}

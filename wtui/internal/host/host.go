@@ -233,7 +233,7 @@ func isExitNote(said string) bool {
 // same second, the first by name.
 func mostRecent(normal *tmux.Client) string {
 	snap, _ := normal.Snapshot()
-	if s := latest(snap.Sessions); s != nil {
+	if s := tmux.Latest(snap.Sessions); s != nil {
 		return s.ID
 	}
 	return ""
