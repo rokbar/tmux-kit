@@ -428,6 +428,20 @@ func (h *Host) FocusSidebar() error {
 	return h.run("select-pane", "-t", h.sidebar)
 }
 
+// ThenFocusSidebar is command (words, run without a shell), then a tmux
+// command that focuses the sidebar: for a program the normal server runs,
+// e.g. a git UI floating over the right side, so that focus comes back once
+// it quits. It names the host by its socket, so once the host has gone, it
+// does nothing.
+func (h *Host) ThenFocusSidebar(command []string) []string {
+	bin, err := exec.LookPath("tmux") // the normal server's PATH may differ
+	if err != nil {
+		bin = "tmux"
+	}
+	focus := shellQuote(bin) + " -S " + shellQuote(h.socket()) + " select-pane -t " + shellQuote(h.sidebar) + " >/dev/null 2>&1"
+	return append([]string{"/bin/sh", "-c", `"$@"; ` + focus, "sh"}, command...)
+}
+
 // PrefixRight moves focus to the right side and passes tmux's prefix on to
 // the nested client there, so the key typed next completes it.
 func (h *Host) PrefixRight() error {

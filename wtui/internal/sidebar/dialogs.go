@@ -22,7 +22,7 @@ func gitWorktreeOf(n *tree.Node) (*wt.Worktree, hint) {
 	w := worktreeOf(n)
 	switch {
 	case w == nil:
-		return nil, hint(sessionOf(n).Name + " isn't in a git worktree")
+		return nil, hint(sessionOf(n).Name + " isn't in a git repo")
 	case w.State == wt.Missing:
 		return nil, isMissing(w)
 	}

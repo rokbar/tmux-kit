@@ -16,12 +16,17 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
 
-// Popup records the popup and, unless popupErr, has onPopup, if set, play
-// the dialog in it.
+// Popup records the popup, and in its host's log, if it has a host, the
+// command it pops up over the right side, in its folder, unless it fails
+// with popupErr. Then onPopup, if set, plays the dialog in it; as tmux's
+// does, it returns once that has exited.
 func (n *fakeNormal) Popup(p tmux.Popup) error {
 	n.popups = append(n.popups, p)
 	if n.popupErr != nil {
 		return n.popupErr
+	}
+	if n.host != nil {
+		n.host.asked = append(n.host.asked, "popup in "+p.Dir+": "+strings.Join(p.Command, " "))
 	}
 	if n.onPopup != nil {
 		n.onPopup(p)
@@ -141,9 +146,9 @@ func TestIShowsTheRowsDetails(t *testing.T) {
 		"      docs :3002":    "/p/api--docs: /bin/wtui details /p/api--docs docs http://localhost:3002",
 		"      api--rebase ±": "/p/api--rebase: /bin/wtui details /p/api--rebase  ",
 		"      api--gone ✗":   "api--gone is missing",
-		"4   ▸ spike":         "spike isn't in a git worktree",
-		"  ▾ notes":           "notes isn't in a git worktree",
-		"5   ▸ notes":         "notes isn't in a git worktree",
+		"4   ▸ spike":         "spike isn't in a git repo",
+		"  ▾ notes":           "notes isn't in a git repo",
+		"5   ▸ notes":         "notes isn't in a git repo",
 		"  ▾ Zed":             zed,
 		"6   ▸ zed :3000":     zed,
 		"7   ▸ agent :3005":   "/p/Zed/.claude/worktrees/agent: /bin/wtui details /p/Zed/.claude/worktrees/agent agent-1 http://localhost:3005/app",
@@ -181,9 +186,9 @@ func TestNRunsThePickerInTheRowsWorktree(t *testing.T) {
 		"      docs":          "/p/api--docs: /bin/wtui pick",
 		"      api--rebase ±": "/p/api--rebase: /bin/wtui pick",
 		"      api--gone ✗":   "api--gone is missing",
-		"4   ▸ spike":         "spike isn't in a git worktree",
-		"  ▾ notes":           "notes isn't in a git worktree",
-		"5   ▸ notes":         "notes isn't in a git worktree",
+		"4   ▸ spike":         "spike isn't in a git repo",
+		"  ▾ notes":           "notes isn't in a git repo",
+		"5   ▸ notes":         "notes isn't in a git repo",
 		"  ▾ Zed":             zed,
 		"6   ▸ zed":           zed,
 		"7   ▸ agent":         "/p/Zed/.claude/worktrees/agent: /bin/wtui pick",

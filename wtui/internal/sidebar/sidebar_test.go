@@ -36,10 +36,16 @@ type fakeNormal struct {
 	lastErr   error
 	snapshots int      // how many times Snapshot ran
 	shown     []string // "session" or "session:window", by id, or "last"
-	// popups are the popups opened (see dialogs_test.go)
-	popups   []tmux.Popup
-	popupErr error
-	onPopup  func(tmux.Popup)
+	// version is its tmux version; what floats or pops up over the right
+	// side goes in host's log, if it has a host, unless floatErr or
+	// popupErr (see gitui_test.go)
+	version            string
+	host               *fakeHost
+	floatErr, popupErr error
+	// popups are the popups opened, onPopup plays the dialog in one (see
+	// dialogs_test.go)
+	popups  []tmux.Popup
+	onPopup func(tmux.Popup)
 }
 
 func (n *fakeNormal) Snapshot() (tmux.Snapshot, error) {

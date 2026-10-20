@@ -37,6 +37,7 @@ var actions = []action{
 	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
 	{[]string{"e"}, "the editor on the worktree or folder", on(folderOf, Model.edit)},
 	{[]string{"o"}, "the dev URL in the browser", on(devURLOf, Model.browse)},
+	{[]string{"g"}, "the git UI in the worktree, over the right side", on(gitFolderOf, Model.gitUI)},
 	{[]string{"n"}, "the picker, from the worktree: open a branch, or make one", on(gitWorktreeOf, Model.pick)},
 	{[]string{"i"}, "details of the worktree: branch, changes, commits, upstream, dev URL", on(gitWorktreeOf, Model.details)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
