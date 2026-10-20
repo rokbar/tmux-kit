@@ -21,7 +21,7 @@ func (m Model) number() (Model, tea.Cmd) {
 	n := int(m.pressed[0] - '0')
 	for _, s := range m.tree.Sessions() {
 		if s.Number == n {
-			return m, m.jump(s.Session)
+			return m, m.show(s.Session, "")
 		}
 	}
 	return m, m.goNowhere(hint(fmt.Sprintf("no session %d", n)))
@@ -36,10 +36,7 @@ func (m Model) last() (Model, tea.Cmd) {
 		if errors.Is(err, tmux.ErrNoOtherSession) {
 			return nowhere{hint("no other session"), host.FocusRight()}
 		}
-		if err != nil {
-			return shown{err: err}
-		}
-		return shown{session: session, err: host.FocusRight()}
+		return onRight(host, session, "", err)
 	}
 }
 
@@ -50,7 +47,7 @@ func (m Model) previous() (Model, tea.Cmd) { return m.sibling(-1) }
 // (before it, for a negative by), going round.
 func (m Model) sibling(by int) (Model, tea.Cmd) {
 	if s := m.tree.Next(m.active, by); s != nil {
-		return m, m.jump(s.Session)
+		return m, m.show(s.Session, "")
 	}
 	project := "this project"
 	for p := m.tree.Node(tree.ID{Kind: tree.Session, Key: m.active}); p != nil; p = p.Parent {
@@ -59,16 +56,22 @@ func (m Model) sibling(by int) (Model, tea.Cmd) {
 	return m, m.goNowhere(hint("no other session in " + project))
 }
 
-// jump shows session (an id) on the right and moves focus there. If it
-// can't be shown, focus stays, and the status line says why.
-func (m Model) jump(session string) tea.Cmd {
+// show shows session (an id) on the right, at its window window (an id)
+// unless that's "", and moves focus there. If it can't be shown, focus
+// stays, and the status line says why.
+func (m Model) show(session, window string) tea.Cmd {
 	normal, host := m.c.Normal, m.c.Host
-	return func() tea.Msg {
-		if err := normal.Show(session, ""); err != nil {
-			return shown{err: err}
-		}
-		return shown{session: session, err: host.FocusRight()}
+	return func() tea.Msg { return onRight(host, session, "", normal.Show(session, window)) }
+}
+
+// onRight is the right side showing session once it was asked to, which
+// failed with err if it did: focus moves there too, unless it failed. said
+// is what wt said, if it opened the session first.
+func onRight(host Host, session, said string, err error) shown {
+	if err != nil {
+		return shown{said: said, err: err}
 	}
+	return shown{session: session, said: said, err: host.FocusRight()}
 }
 
 // nowhere is a jump with nowhere to go, once focus has moved right all the

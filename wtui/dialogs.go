@@ -158,7 +158,4 @@ func showPage(lines ...string) error {
 }
 
 // runShortcuts shows every shortcut, where key is the wtui key.
-func runShortcuts(key string) error {
-	_, err := tea.NewProgram(dialog.Page(sidebar.Shortcuts(key))).Run()
-	return err
-}
+func runShortcuts(key string) error { return showPage(sidebar.Shortcuts(key)...) }

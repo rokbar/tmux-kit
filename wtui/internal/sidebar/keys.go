@@ -181,14 +181,7 @@ func (m Model) enter() (Model, tea.Cmd) {
 	case n.ID.Kind == tree.Worktree:
 		return m, m.opening(n)
 	}
-	normal, host := m.c.Normal, m.c.Host
-	session, window := n.Session, n.Window
-	return m, func() tea.Msg {
-		if err := normal.Show(session, window); err != nil {
-			return shown{err: err}
-		}
-		return shown{session: session, err: host.FocusRight()}
-	}
+	return m, m.show(n.Session, n.Window)
 }
 
 // opening has wt open the session of n, a worktree's row, then shows that
@@ -211,10 +204,7 @@ func (m Model) opening(n *tree.Node) tea.Cmd {
 			return shown{said: said, err: fmt.Errorf("wt opened %s, but no session started there", path)}
 		}
 		session := snap.Sessions[i].ID
-		if err := normal.Show(session, ""); err != nil {
-			return shown{said: said, err: err}
-		}
-		return shown{session: session, said: said, err: host.FocusRight()}
+		return onRight(host, session, said, normal.Show(session, ""))
 	}
 }
 
