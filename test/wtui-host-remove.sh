@@ -13,14 +13,16 @@ build_wtui
 
 # api: a git project. Its worktree fix has two sessions, fix in its folder
 # and review in a folder inside it, with an agent at work; and a file not
-# committed. notes, a plain folder, is the session used last once fix and
+# committed. Launched in fix's folder, wtui starts on the worktree's most
+# recent session: fix, made after review (or in the same second, and first
+# by name). notes, a plain folder, is the session used last once fix and
 # review end (activity counts seconds); not api, which wt would switch to.
 git init -q -b main "$tmp/api"
 git -C "$tmp/api" commit -q --allow-empty -m init
 git -C "$tmp/api" worktree add -q -b fix "$tmp/api--fix"
 new_session api "$tmp/api"
-new_session fix "$tmp/api--fix"
 new_session review "$tmp/api--fix/src"
+new_session fix "$tmp/api--fix"
 sleep 1.1
 new_session notes "$tmp/notes"
 for s in api fix notes; do tmux rename-window -t "=$s:" shell; done
