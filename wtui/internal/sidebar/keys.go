@@ -18,6 +18,16 @@ type action struct {
 	// help says what it does, for lists of keys.
 	help string
 	do   func(Model) (Model, tea.Cmd)
+	// held is whether focus can go to the right side after it: the jumps,
+	// enter, and the keys that go right (esc, ctrl+b and z). The host runs
+	// a held key itself, having the sidebar press it (Press), and holds the
+	// keys typed after it until it's done, so that those land in the session
+	// shown, not in the sidebar. A held key is done once the command its
+	// action gives has run, so that command does all the key does: a
+	// batch's commands aren't waited for.
+	held bool
+	// repeats is whether, after the wtui key, its keys repeat without it.
+	repeats bool
 }
 
 // actions are every sidebar key, in the order a list of keys shows them.
@@ -25,30 +35,30 @@ type action struct {
 // row (its folder, its dev URL) finds it with on, which shows a hint for a
 // row that has none.
 var actions = []action{
-	{[]string{"j", "down"}, "down", Model.down},
-	{[]string{"k", "up"}, "up", Model.up},
-	{[]string{"l", "right"}, "unfold", Model.unfold},
-	{[]string{"h", "left"}, "fold, or go to the parent", Model.fold},
-	{[]string{"space"}, "fold or unfold", Model.toggle},
-	{[]string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, "show the session with that number on the right", Model.number},
-	{[]string{"tab"}, "show the last session on the right", Model.last},
-	{[]string{"]"}, "show the next session in the active session's project", Model.next},
-	{[]string{"["}, "show the previous session in the active session's project", Model.previous},
-	{[]string{"enter"}, "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", Model.enter},
-	{[]string{"e"}, "the editor on the worktree or folder", on(folderOf, Model.edit)},
-	{[]string{"o"}, "the dev URL in the browser", on(devURLOf, Model.browse)},
-	{[]string{"g"}, "the git UI in the worktree, over the right side", on(gitFolderOf, Model.gitUI)},
-	{[]string{"n"}, "the picker, from the worktree: open a branch, or make one", on(gitWorktreeOf, Model.pick)},
-	{[]string{"i"}, "details of the worktree: branch, changes, commits, upstream, dev URL", on(gitWorktreeOf, Model.details)},
-	{[]string{"x"}, "remove the worktree and end its sessions, after asking", on(removableOf, Model.remove)},
-	{[]string{"d"}, "kill the session or window, after asking (its worktree stays)", on(killable, Model.kill)},
-	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
-	{[]string{"p"}, "open a project from the projects root, over the right side", Model.openProject},
-	{[]string{"z"}, "hide the sidebar", Model.hide},
-	{[]string{"esc"}, "back to the right side", Model.goRight},
-	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},
-	{[]string{"?"}, "every shortcut", Model.shortcuts},
-	{[]string{"q"}, "close wtui", Model.quit},
+	{keys: []string{"j", "down"}, help: "down", do: Model.down},
+	{keys: []string{"k", "up"}, help: "up", do: Model.up},
+	{keys: []string{"l", "right"}, help: "unfold", do: Model.unfold},
+	{keys: []string{"h", "left"}, help: "fold, or go to the parent", do: Model.fold},
+	{keys: []string{"space"}, help: "fold or unfold", do: Model.toggle},
+	{keys: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, help: "show the session with that number on the right", do: Model.number, held: true},
+	{keys: []string{"tab"}, help: "show the last session on the right", do: Model.last, held: true},
+	{keys: []string{"]"}, help: "show the next session in the active session's project", do: Model.next, held: true, repeats: true},
+	{keys: []string{"["}, help: "show the previous session in the active session's project", do: Model.previous, held: true, repeats: true},
+	{keys: []string{"enter"}, help: "show on the right, opening a worktree's session if it has none; fold or unfold a project or worktree", do: Model.enter, held: true},
+	{keys: []string{"e"}, help: "the editor on the worktree or folder", do: on(folderOf, Model.edit)},
+	{keys: []string{"o"}, help: "the dev URL in the browser", do: on(devURLOf, Model.browse)},
+	{keys: []string{"g"}, help: "the git UI in the worktree, over the right side", do: on(gitFolderOf, Model.gitUI)},
+	{keys: []string{"n"}, help: "the picker, from the worktree: open a branch, or make one", do: on(gitWorktreeOf, Model.pick)},
+	{keys: []string{"i"}, help: "details of the worktree: branch, changes, commits, upstream, dev URL", do: on(gitWorktreeOf, Model.details)},
+	{keys: []string{"x"}, help: "remove the worktree and end its sessions, after asking", do: on(removableOf, Model.remove)},
+	{keys: []string{"d"}, help: "kill the session or window, after asking (its worktree stays)", do: on(killable, Model.kill)},
+	{keys: []string{"r"}, help: "rebuild the tree", do: Model.rebuildAll},
+	{keys: []string{"p"}, help: "open a project from the projects root, over the right side", do: Model.openProject},
+	{keys: []string{"z"}, help: "hide the sidebar", do: Model.hide, held: true},
+	{keys: []string{"esc"}, help: "back to the right side", do: Model.goRight, held: true},
+	{keys: []string{"ctrl+b"}, help: "tmux's prefix, on the right side", do: Model.prefixRight, held: true},
+	{keys: []string{"?"}, help: "every shortcut", do: Model.shortcuts},
+	{keys: []string{"q"}, help: "close wtui", do: Model.quit},
 }
 
 // keyed is actions by key.

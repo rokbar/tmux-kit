@@ -1,7 +1,6 @@
 package sidebar
 
 import (
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -10,28 +9,13 @@ import (
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
 )
 
-// held are the keys after which focus can go to the right side: the jumps,
-// enter, and the keys that go right (esc, ctrl+b and z). The host runs them
-// itself, having the sidebar press them (Press), and holds the keys typed
-// after them until they're done, so that those land in the session shown,
-// not in the sidebar. A held key is done once the command its action gives
-// has run, so that command does all the key does: a batch's commands aren't
-// waited for.
-var held = []string{"enter", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "]", "[", "esc", "ctrl+b", "z"}
-
-// repeats are the keys that, after the wtui key, repeat without it.
-var repeats = []string{"]", "["}
-
 // Keys are every sidebar key, for the host to bind: after the wtui key, and
-// those that are held also while the sidebar has focus.
+// those that are held (see action) also while the sidebar has focus.
 func Keys() []host.Key {
 	var keys []host.Key
 	for _, a := range actions {
 		for _, k := range a.keys {
-			keys = append(keys, host.Key{
-				Tmux: tmuxKey(k), Name: k,
-				Held: slices.Contains(held, k), Repeats: slices.Contains(repeats, k),
-			})
+			keys = append(keys, host.Key{Tmux: tmuxKey(k), Name: k, Held: a.held, Repeats: a.repeats})
 		}
 	}
 	return keys
