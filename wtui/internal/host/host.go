@@ -460,7 +460,32 @@ func (h *Host) Popup(p tmux.Popup, width, height int) error {
 	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
 		return fmt.Errorf("can't tell the terminal's size from %q", out)
 	}
-	args := []string{"display-popup", "-E", "-w", strconv.Itoa(min(width, cols)), "-h", strconv.Itoa(min(height, rows)), "-T", p.Title}
+	return h.popup(p, "-w", strconv.Itoa(min(width, cols)), "-h", strconv.Itoa(min(height, rows)))
+}
+
+// PopupRight opens p in a popup over the right side, covering it, and
+// returns once its program has exited, whatever its exit status: a popup of
+// the host's, for while the right side shows no session, so there's no
+// nested client to open one on. Focus stays where it was.
+func (h *Host) PopupRight(p tmux.Popup) error {
+	out, err := h.tmux("display-message", "-p", "-t", h.right, "#{pane_width} #{pane_height}").Output()
+	if err != nil {
+		return fmt.Errorf("can't tell the right side's size: %w", err)
+	}
+	var cols, rows int
+	if _, err := fmt.Sscan(string(out), &cols, &rows); err != nil {
+		return fmt.Errorf("can't tell the right side's size from %q", out)
+	}
+	// -y is where the popup's bottom is
+	return h.popup(p, "-t", h.right, "-x", "#{popup_pane_left}", "-y", "#{popup_pane_bottom}",
+		"-w", strconv.Itoa(cols), "-h", strconv.Itoa(rows))
+}
+
+// popup opens p in a popup on the host, placed and sized by where (the
+// display-popup arguments that do it), and returns once its program has
+// exited, whatever its exit status.
+func (h *Host) popup(p tmux.Popup, where ...string) error {
+	args := append(append([]string{"display-popup", "-E"}, where...), "-T", p.Title)
 	if p.Dir != "" {
 		args = append(args, "-d", p.Dir)
 	}

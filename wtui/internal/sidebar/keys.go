@@ -41,6 +41,7 @@ var actions = []action{
 	{[]string{"n"}, "the picker, from the worktree: open a branch, or make one", on(gitWorktreeOf, Model.pick)},
 	{[]string{"i"}, "details of the worktree: branch, changes, commits, upstream, dev URL", on(gitWorktreeOf, Model.details)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
+	{[]string{"p"}, "open a project from the projects root, over the right side", Model.openProject},
 	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},
 	{[]string{"ctrl+b"}, "tmux's prefix, on the right side", Model.prefixRight},

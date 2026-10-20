@@ -19,6 +19,8 @@
 //	wtui details <folder> [<branch> [<dev URL>]]
 //	                                   a worktree's details (i)
 //	wtui pick                          the picker, in this folder (n)
+//	wtui project [-d] <root>           open a project from the projects root (p);
+//	                                   -d: on the host, with no nested client
 //	wtui shortcuts <key>               every shortcut, where <key> is the wtui key (?)
 package main
 
@@ -66,6 +68,8 @@ func main() {
 		err = runDetails(flag.Arg(1), flag.Arg(2), flag.Arg(3))
 	case "pick":
 		err = runPick()
+	case "project":
+		err = runProject(flag.Args()[1:])
 	case "shortcuts":
 		err = runShortcuts(flag.Arg(1))
 	default:
@@ -111,6 +115,7 @@ func runSidebar(socket string) error {
 	c := sidebar.Clients{
 		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
 		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe,
+		ProjectsRoot: normal.ProjectsRoot(),
 	}
 	var m tea.Model = sidebar.New(c, key)
 	// The sidebar starts with focus, as the host gives it, unless it starts

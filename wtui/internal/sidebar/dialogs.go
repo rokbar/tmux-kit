@@ -47,16 +47,20 @@ func (m Model) pick(w *wt.Worktree) (Model, tea.Cmd) {
 // until it closes; then focus comes back to the sidebar. The sidebar works
 // meanwhile (e.g. a click on it). Then the status line says what the dialog
 // said, if anything, and afterAction follows.
-func (m Model) dialog(p tmux.Popup) (Model, tea.Cmd) {
+func (m Model) dialog(p tmux.Popup) (Model, tea.Cmd) { return m.dialogIn(m.c.Normal.Popup, p) }
+
+// dialogIn is dialog, in the popup open opens, e.g. the host's while the
+// right side has no nested client.
+func (m Model) dialogIn(open func(tmux.Popup) error, p tmux.Popup) (Model, tea.Cmd) {
 	p.Command = append([]string{m.c.Wtui}, p.Command...)
-	normal, host := m.c.Normal, m.c.Host
+	host := m.c.Host
 	return m, func() tea.Msg {
 		if err := host.FocusRight(); err != nil {
 			return dialogClosed{err: err}
 		}
 		said, err := dialog.Open(func(env []string) error {
 			p.Env = append(p.Env, env...)
-			return normal.Popup(p)
+			return open(p)
 		})
 		if focus := host.FocusSidebar(); err == nil {
 			err = focus

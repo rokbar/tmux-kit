@@ -152,6 +152,20 @@ func (c *Client) RunPick(dir string) error {
 	return r.Run()
 }
 
+// OpenAndSwitch has wt open the session of the main clone or worktree at
+// path, as Open does, then switch the tmux client wt runs in to it (`wt
+// <path>`): in a popup of wtui's, the one TMUX_KIT_CLIENT names. It's for
+// inside tmux: outside, wt would attach this process's terminal instead.
+// wt runs in dir, as for List. If wt fails, the error's text is what it
+// said.
+func (c *Client) OpenAndSwitch(dir, path string) error {
+	if os.Getenv("TMUX") == "" {
+		return errors.New("wt can only switch to a session inside tmux")
+	}
+	_, err := c.run(dir, noKind, path)
+	return err
+}
+
 // GitUI is the user's git UI (`wt git-ui <path>`), run in the main clone or
 // worktree at path. wt runs in dir, as for List. The git UI needs the
 // terminal, so this is a command that pauses wtui while it runs, then reports
