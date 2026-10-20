@@ -22,6 +22,9 @@
 //	wtui project [-d] <root>           open a project from the projects root (p);
 //	                                   -d: on the host, with no nested client
 //	wtui shortcuts <key>               every shortcut, where <key> is the wtui key (?)
+//	wtui -S <socket> kill <session>[:<window>] <question>
+//	                                   asks <question>, then kills that session
+//	                                   or window (ids) on the normal server (d)
 package main
 
 import (
@@ -72,6 +75,8 @@ func main() {
 		err = runProject(flag.Args()[1:])
 	case "shortcuts":
 		err = runShortcuts(flag.Arg(1))
+	case "kill":
+		err = runKill(*socket, flag.Arg(1), flag.Arg(2))
 	default:
 		fmt.Fprintln(os.Stderr, "usage: wtui [--version]")
 		os.Exit(2)
@@ -114,7 +119,7 @@ func runSidebar(socket string) error {
 	watch := normal.Watch()
 	c := sidebar.Clients{
 		Host: h, Normal: normal, Repos: gitrepo.Lookup{}, Wt: wt.New(exe),
-		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe,
+		Editor: editor.Opener{Editor: normal.Editor}, Browser: browser.Opener{}, Wtui: exe, Socket: socket,
 		ProjectsRoot: normal.ProjectsRoot(),
 	}
 	var m tea.Model = sidebar.New(c, key)

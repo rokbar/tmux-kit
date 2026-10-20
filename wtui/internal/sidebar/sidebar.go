@@ -105,6 +105,9 @@ type Clients struct {
 	// Wtui is the wtui program, whose subcommands the dialogs are (see
 	// dialog).
 	Wtui string
+	// Socket is the normal server's socket, which a dialog that talks to it
+	// reaches it by (wtui -S).
+	Socket string
 	// ProjectsRoot is the projects root, whose folders p offers to open.
 	ProjectsRoot string
 }
