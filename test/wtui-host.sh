@@ -32,12 +32,14 @@ case "$nested" in *no-detach-on-destroy*) ;; *) fail "the right side's client is
 case "$nested" in *sync*) ;; *) fail "the right side's client lacks the sync feature: $nested" ;; esac
 
 # The host binds nothing but the wtui key (the normal server's @wtui-key,
-# unset here: C-\), the two mouse bindings and the sidebar's held keys, so
-# every other key reaches the side with focus. A held key, but in the
-# sidebar, passes on as it is: its binding ends with send-keys, which sends
-# the key pressed (test/wtui-host-jumps.sh types them on the right).
+# unset here: C-\), the mouse's (a click, a second or third click, a drag on
+# the border) and the sidebar's held keys, so every other key reaches the
+# side with focus. A held key, but in the sidebar, passes on as it is: its
+# binding ends with send-keys, which sends the key pressed
+# (test/wtui-host-jumps.sh types them on the right).
 root="$(host t1 list-keys -T root | awk '$NF != "send-keys" { print $4 }' | sort | tr '\n' ' ')"
-[ "$root" = 'C-\\ MouseDown1Pane MouseDrag1Border ' ] || fail "the host's root table binds: $root"
+[ "$root" = 'C-\\ MouseDown1Pane MouseDrag1Border SecondClick1Pane TripleClick1Pane ' ] ||
+  fail "the host's root table binds: $root"
 
 # The terminal's title follows the session shown, whichever side has focus.
 title() { [ "$(term display-message -p -t =t1: '#{pane_title}')" = "$1" ]; }
@@ -72,15 +74,18 @@ wait_until "C-b in the sidebar to focus the right side" focus_on t1 right
 type_in t1 c
 wait_until "C-b c from the sidebar to make a window in beta" eval '[ "$(windows beta)" = 2 ]'
 
-# A click focuses a side; dragging the border (column 31) resizes the sidebar.
-# Clicks are more than double-click-time (300 ms) apart: tmux before 3.7
-# takes a second click within it for a double click, even on another pane.
+# A click focuses a side, however quickly it follows the last: tmux before
+# 3.7 takes a click within double-click-time (300 ms) of the last for a
+# second click (SecondClick1Pane), even on another pane, and the next for a
+# third (TripleClick1Pane). Here the right side has focus, and the mouse
+# hasn't been clicked yet: a click there, then at once one on the sidebar,
+# are a click and a second click. Dragging the border (column 31) resizes
+# the sidebar.
+click t1 80 10
 click t1 5 10
-wait_until "a click on the sidebar to focus it" focus_on t1 sidebar
-sleep 0.4
+wait_until "a quick second click, on the sidebar, to focus it" focus_on t1 sidebar
 click t1 80 10
 wait_until "a click on the right side to focus it" focus_on t1 right
-sleep 0.4
 drag t1 31 10 25 10
 wait_until "dragging the border to make the sidebar 24 columns wide" eval '[ "$(sidebar_width t1)" = 24 ]'
 

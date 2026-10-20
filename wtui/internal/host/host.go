@@ -27,15 +27,20 @@ import (
 
 // config is the host server's whole config, written for each launch. The
 // host has no prefix and binds nothing but the wtui key and the sidebar's
-// held keys (bound once the panes are known, see Sidebar), and two mouse
-// bindings, so every other key and mouse event reaches the side that has
-// focus as it is (the held keys too, on the right side): a click focuses a
-// side, dragging the border resizes the sidebar, and the wheel reaches the
-// nested client's own mouse mode. set-clipboard passes the nested client's
-// OSC 52 copies on to the terminal. The terminal's title is the right pane's,
-// which the nested client sets (the session shown, by default), whichever
-// side has focus. Focus events reach the panes, so the sidebar knows when it
-// gets focus. The server exits once the terminal, its only client, goes.
+// held keys (bound once the panes are known, see Sidebar), and the mouse's
+// clicks and drags on the border, so every other key and mouse event reaches
+// the side that has focus as it is (the held keys too, on the right side): a
+// click focuses a side, dragging the border resizes the sidebar, and the
+// wheel reaches the nested client's own mouse mode. A click is bound as each
+// kind tmux fires on the spot: before tmux 3.7, a click within
+// double-click-time of the last is a second click, even on the other side,
+// and the next a third. (The double click tmux fires at a second click's
+// place once double-click-time has passed passes on as it is.) set-clipboard
+// passes the nested client's OSC 52 copies on to the terminal. The terminal's
+// title is the right pane's, which the nested client sets (the session shown,
+// by default), whichever side has focus. Focus events reach the panes, so the
+// sidebar knows when it gets focus. The server exits once the terminal, its
+// only client, goes.
 const config = `set -g prefix None
 set -g prefix2 None
 set -g status off
@@ -48,6 +53,8 @@ set -s set-clipboard on
 set -s exit-unattached on
 unbind -a -T root
 bind -n MouseDown1Pane select-pane -t = \; send -M
+bind -n SecondClick1Pane select-pane -t = \; send -M
+bind -n TripleClick1Pane select-pane -t = \; send -M
 bind -n MouseDrag1Border resize-pane -M
 `
 
