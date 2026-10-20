@@ -19,6 +19,7 @@
 //	wtui details <folder> [<branch> [<dev URL>]]
 //	                                   a worktree's details (i)
 //	wtui pick                          the picker, in this folder (n)
+//	wtui remove <removal>              removing a worktree, run in its main clone (x)
 //	wtui shortcuts <key>               every shortcut, where <key> is the wtui key (?)
 package main
 
@@ -66,6 +67,8 @@ func main() {
 		err = runDetails(flag.Arg(1), flag.Arg(2), flag.Arg(3))
 	case "pick":
 		err = runPick()
+	case "remove":
+		err = runRemove(flag.Arg(1))
 	case "shortcuts":
 		err = runShortcuts(flag.Arg(1))
 	default:

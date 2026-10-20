@@ -35,6 +35,26 @@ func runPick() error {
 	return nil
 }
 
+// runRemove is the remove dialog of the worktree removal names (see
+// dialog.Removal.Arg), run in its main clone: what wt said, or its failure,
+// is for the status line.
+func runRemove(removal string) error {
+	r, err := dialog.ParseRemoval(removal)
+	if err != nil {
+		return err
+	}
+	exe, _ := os.Executable() // without it, wt is looked for only at $WT_BIN and on PATH
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	final, err := tea.NewProgram(dialog.Remove(wt.New(exe), dir, r)).Run()
+	if err != nil {
+		return err
+	}
+	return dialog.Say(final.(dialog.Removing).Said())
+}
+
 // runShortcuts shows every shortcut, where key is the wtui key.
 func runShortcuts(key string) error {
 	_, err := tea.NewProgram(dialog.Page(sidebar.Shortcuts(key))).Run()

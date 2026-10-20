@@ -40,6 +40,7 @@ var actions = []action{
 	{[]string{"g"}, "the git UI in the worktree, over the right side", on(gitFolderOf, Model.gitUI)},
 	{[]string{"n"}, "the picker, from the worktree: open a branch, or make one", on(gitWorktreeOf, Model.pick)},
 	{[]string{"i"}, "details of the worktree: branch, changes, commits, upstream, dev URL", on(gitWorktreeOf, Model.details)},
+	{[]string{"x"}, "remove the worktree and end its sessions, after asking", on(removableOf, Model.remove)},
 	{[]string{"r"}, "rebuild the tree", Model.rebuildAll},
 	{[]string{"z"}, "hide the sidebar", Model.hide},
 	{[]string{"esc"}, "back to the right side", Model.goRight},

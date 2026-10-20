@@ -93,13 +93,14 @@ To use a different editor for `prefix e`, put
   change would need `--porcelain=v2`, leaving `--porcelain` as it is. Known
   limitation: a tab or newline in a worktree's path breaks the format, as it
   already breaks wt's own reading of git's worktree list.
-- `wt rm [-f] <branch|slug|path>`: remove the worktree and kill its session;
-  the branch is kept. Refuses on uncommitted changes, commits on no other
-  branch or remote, or shared files that became real files instead of links.
-  `-f` skips these checks. A missing worktree (its folder deleted by hand) has
-  nothing left to check: `wt rm` unregisters just that one from git and kills
-  the session started in it, `-f` or not. A locked worktree is refused even
-  with `-f` (`git worktree unlock` it first).
+- `wt rm [-f] <branch|slug|path>`: remove the worktree and kill its sessions
+  (every session started in its folder or a folder inside it); the branch is
+  kept. Refuses on uncommitted changes, commits on no other branch or remote,
+  or shared files that became real files instead of links. `-f` skips these
+  checks. A missing worktree (its folder deleted by hand) has nothing left to
+  check: `wt rm` unregisters just that one from git and kills the sessions
+  started in it, `-f` or not. A locked worktree is refused even with `-f`
+  (`git worktree unlock` it first).
   Exit status: `3` on a safety refusal (one of the checks above, which `-f`
   overrides), so a script can offer to force; `1` for any other failure (not a
   worktree, the main clone, locked, usage).

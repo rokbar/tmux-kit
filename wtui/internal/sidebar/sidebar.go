@@ -360,7 +360,16 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m, _ = m.update(Active{Session: msg.Session})
 		if msg.Ended {
-			return m, ask(m.c.Host.FocusSidebar)
+			// No action of the user's: what the last one said stays in the
+			// status line (e.g. wt's, having removed the session's worktree),
+			// unless this fails.
+			host := m.c.Host
+			return m, func() tea.Msg {
+				if err := host.FocusSidebar(); err != nil {
+					return hostDone{err}
+				}
+				return nil
+			}
 		}
 		return m, nil
 	case shown:
