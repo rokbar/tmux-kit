@@ -83,8 +83,7 @@ missing=""
 for cmd in tmux git fzf; do command -v "$cmd" >/dev/null || missing+=" $cmd"; done
 if [ -n "$missing" ]; then echo "missing:$missing (brew install$missing)"; fi
 case ":$PATH:" in *":$bin:"*) ;; *) echo "add $bin to PATH" ;; esac
-# before the reload, so the config sees wtui and binds prefix+w; if it fails,
-# the rest still runs and install.sh exits 1
+# if it fails, the rest still runs (the reload too) and install.sh exits 1
 wtui_failed=""
 if [ -n "$with_wtui" ]; then install_wtui || wtui_failed=1; fi
 if [ -n "${TMUX:-}" ]; then tmux source-file "$HOME/.tmux.conf" && echo "reloaded tmux config"; fi

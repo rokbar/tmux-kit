@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The kit's tmux.conf binds prefix w to the wtui popup only when
-# ~/.local/bin/wtui is executable as the config loads; else w stays tmux's.
+# The kit's tmux.conf leaves prefix w as tmux's window list, with or without
+# wtui installed: wtui is launched from a plain terminal now, not a popup.
 set -euo pipefail
 # shellcheck source=test/lib/sandbox.sh
 . "$(dirname "$0")/lib/sandbox.sh"
@@ -21,23 +21,13 @@ prefix_w_with() {
 
 tmux_default="$(prefix_w_with /dev/null)"
 [ -n "$tmux_default" ] || fail "tmux has no default prefix w binding to compare with"
-wtui="$HOME/.local/bin/wtui"
 
 [ "$(prefix_w_with "$kit/tmux.conf")" = "$tmux_default" ] ||
   fail "without wtui, prefix w isn't tmux's default: $(prefix_w_with "$kit/tmux.conf")"
 
-printf '#!/bin/sh\n' >"$wtui"
+printf '#!/bin/sh\n' >"$HOME/.local/bin/wtui"
+chmod +x "$HOME/.local/bin/wtui"
 [ "$(prefix_w_with "$kit/tmux.conf")" = "$tmux_default" ] ||
-  fail "with a non-executable wtui, prefix w isn't tmux's default"
-
-chmod +x "$wtui"
-# the expected binding, as this tmux lists it (versions order flags differently)
-printf 'bind w display-popup -E -w 80%% -h 70%% -d "#{pane_current_path}" "%s"\n' "$wtui" >"$tmp/want.conf"
-want="$(prefix_w_with "$tmp/want.conf")"
-got="$(prefix_w_with "$kit/tmux.conf")"
-[ "$got" = "$want" ] || fail "with wtui installed, prefix w is
-  $got
-want
-  $want"
+  fail "with wtui installed, prefix w isn't tmux's default: $(prefix_w_with "$kit/tmux.conf")"
 
 echo "ok: tmux-wtui-binding"

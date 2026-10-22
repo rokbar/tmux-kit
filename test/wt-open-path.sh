@@ -77,6 +77,12 @@ case "$sock" in "$tmp"/*) ;; *) fail "tmux server isn't the sandbox's: $sock" ;;
 [ "$(cat "$tmp/attached")" = "attach -t =custom" ] || fail "wt <path> didn't attach to custom: $(cat "$tmp/attached")"
 (export PATH="$tmp/bin:$PATH" TMUX="$sock,1,0" && wt ../demo--named) || fail "wt <path> failed to switch"
 [ "$(cat "$tmp/attached")" = "switch-client -t =custom" ] || fail "wt <path> didn't switch to custom: $(cat "$tmp/attached")"
+# in a popup that names its client in TMUX_KIT_CLIENT (wtui's), it switches
+# that client: tmux's own pick, in a popup, is the client used last
+(export PATH="$tmp/bin:$PATH" TMUX="$sock,1,0" TMUX_KIT_CLIENT=/dev/ttys042 && wt ../demo--named) ||
+  fail "wt <path> failed to switch the popup's client"
+[ "$(cat "$tmp/attached")" = "switch-client -c /dev/ttys042 -t =custom" ] ||
+  fail "wt <path> didn't switch the popup's client to custom: $(cat "$tmp/attached")"
 
 # wt <args> exits 1, saying "wt: <message>"
 fails() {

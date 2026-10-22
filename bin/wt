@@ -39,7 +39,7 @@ usage:
                            session, dev URL. Fields are never reordered,
                            removed or redefined, only added at the end; a
                            breaking change would need --porcelain=v2
-  wt rm [-f] <branch>      remove worktree + session (-f: skip safety checks)
+  wt rm [-f] <branch>      remove worktree + sessions (-f: skip safety checks)
                            exits 3 on a safety refusal, 1 on other errors
   wt close                 confirm, then wt rm the worktree you're in
   wt git-ui [<path>]       run WT_GIT_UI in that worktree (default: here)
@@ -51,7 +51,7 @@ examples:
   wt feat/x                      open feat/x, creating it if needed
   wt --from origin/main feat/y   new branch feat/y from a fresh origin/main
   wt ls                          what's checked out where
-  wt rm feat/x                   remove feat/x's worktree + session
+  wt rm feat/x                   remove feat/x's worktree + sessions
 
 config: $WT_CONFIG (default ~/.config/wt/config.sh)
 details: README.md in tmux-kit (https://github.com/rokbar/tmux-kit)
@@ -79,6 +79,13 @@ session_name() { clean_name "$(basename "$1")"; }
 session_for() {
   tmux list-sessions -F '#{session_path}'$'\t''#{session_name}' 2>/dev/null |
     awk -F'\t' -v d="$1" '$1==d{print $2; exit}' || true
+}
+
+# Names of every session started in <dir> or a folder inside it, one a line:
+# the sessions that end with <dir>'s worktree.
+sessions_in() {
+  tmux list-sessions -F '#{session_path}'$'\t''#{session_name}' 2>/dev/null |
+    awk -F'\t' -v d="$1" '$1==d || index($1, d "/")==1 {print $2}' || true
 }
 
 # Every session as: session TAB <start dir> TAB <name>. For lists that join it
@@ -296,7 +303,9 @@ open_session() {
   fi
   echo "wt: $dir (tmux session $name)"
   if [ "$detach" = 1 ]; then return; fi
-  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$name"; else exec tmux attach -t "=$name"; fi
+  # TMUX_KIT_CLIENT: the client of the popup wt runs in (wtui's), which
+  # tmux's own pick in a popup isn't
+  if [ -n "${TMUX:-}" ]; then tmux switch-client ${TMUX_KIT_CLIENT:+-c "$TMUX_KIT_CLIENT"} -t "=$name"; else exec tmux attach -t "=$name"; fi
 }
 
 cmd_open() {
@@ -512,7 +521,7 @@ trash_worktree() {
 }
 
 cmd_rm() {
-  local force=0 arg="" dir b kept name
+  local force=0 arg="" dir b kept names name current=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -f) force=1 ;;
@@ -535,7 +544,7 @@ cmd_rm() {
   fi
   b="$worktree_branch"
   kept="${b:+; branch $b kept (git branch -d $b to delete)}"
-  name="$(session_for "$dir")"
+  names="$(sessions_in "$dir")"
 
   if [ "$worktree_state" = missing ]; then
     # its folder is gone, so there's nothing to check or move: unregister just
@@ -548,12 +557,19 @@ cmd_rm() {
     echo "wt: removed $dir$kept"
   fi
 
-  # last: if we're running inside this session, killing it ends us too
-  if [ -n "$name" ]; then
-    if [ -n "${TMUX:-}" ] && [ "$(tmux display-message -p '#S')" = "$name" ]; then
-      tmux switch-client -t "=$(session_for "$main")" 2>/dev/null || tmux switch-client -l 2>/dev/null || true
-    fi
-    tmux kill-session -t "=$name"
+  # Last, its sessions end. Ending the one wt runs in ends wt too, so that one
+  # goes last, once its client has moved to the main clone's session (else
+  # the client would detach). Not in wtui's popup (TMUX_KIT_CLIENT): wt runs
+  # in no session there, and tmux moves wtui's client on by itself.
+  if [ -n "${TMUX:-}" ] && [ -z "${TMUX_KIT_CLIENT:-}" ]; then
+    current="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  fi
+  while IFS= read -r name; do
+    if [ -n "$name" ] && [ "$name" != "$current" ]; then tmux kill-session -t "=$name"; fi
+  done <<<"$names"
+  if [ -n "$current" ] && grep -qxF -- "$current" <<<"$names"; then
+    tmux switch-client -t "=$(session_for "$main")" 2>/dev/null || tmux switch-client -l 2>/dev/null || true
+    tmux kill-session -t "=$current"
   fi
 }
 

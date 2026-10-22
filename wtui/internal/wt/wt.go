@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 // State is whether a worktree has uncommitted changes, or has lost its folder.
@@ -71,7 +69,15 @@ func New(wtuiPath string) *Client { return &Client{wtuiPath: wtuiPath} }
 // List returns the main clone, then every worktree, of the repo dir is in.
 // A wt without `ls --porcelain` is ErrTooOld, whatever it printed.
 func (c *Client) List(dir string) ([]Worktree, error) {
-	out, err := c.run(dir, always(ErrTooOld), "ls", "--porcelain")
+	cmd, err := c.command(dir, "ls", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	// wtui lists worktrees every few seconds, so the git status wt runs must
+	// not refresh the index, which takes its lock: the user's own git could
+	// find it locked.
+	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
+	out, err := output(cmd, always(ErrTooOld))
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +99,19 @@ func (c *Client) List(dir string) ([]Worktree, error) {
 
 // Open has wt open the session of the main clone or worktree at path,
 // starting one with wt's default name if it has none, without switching to it
-// (`wt -d <path>`). wt runs in dir, as for List. If wt fails, the error's text
-// is what it said.
-func (c *Client) Open(dir, path string) error {
-	_, err := c.run(dir, noKind, "-d", path)
-	return err
+// (`wt -d <path>`). wt runs in dir, as for List. It returns what wt said it
+// did (see lastMessage). If wt fails, the error's text is what it said.
+func (c *Client) Open(dir, path string) (string, error) {
+	out, err := c.run(dir, noKind, "-d", path)
+	return lastMessage(string(out)), err
+}
+
+// lastMessage is the last line wt printed on stdout, trimmed: what it did in
+// the end, e.g. "wt: <folder> (tmux session <name>)" once it has opened a
+// session, after any lines on the way there (a new branch, files copied).
+func lastMessage(stdout string) string {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // Remove has wt remove the worktree at path, or unregister it if it's missing,
@@ -117,98 +131,125 @@ func (c *Client) Remove(dir, path string, force bool) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Pick is the picker (`wt pick`), run in dir, which wt takes as the invoking
-// worktree: a new worktree copies its local files, and a new branch starts
-// from its branch unless the picker is told otherwise. The picker needs the
-// terminal, so this is a command that pauses wtui while the picker runs,
-// then reports to done. wt exits 0 whether the picker opened something or
-// was cancelled; if it fails, the error's text is what it said.
-func (c *Client) Pick(dir string, done tea.ExecCallback) tea.Cmd {
-	return c.onTerminal(dir, done, "pick")
-}
-
-// GitUI is the user's git UI (`wt git-ui <path>`), run in the main clone or
-// worktree at path. wt runs in dir, as for List. The git UI needs the
-// terminal, so this is a command that pauses wtui while it runs, then reports
-// to done. If wt fails (e.g. no git UI is configured, or it isn't installed),
-// or the git UI exits non-zero, the error's text is what either said.
-func (c *Client) GitUI(dir, path string, done tea.ExecCallback) tea.Cmd {
-	return c.onTerminal(dir, done, "git-ui", path)
-}
-
-// onTerminal is a command that runs wt with args in dir on the terminal:
-// tea.Exec pauses wtui, gives wt the terminal, and resumes wtui once wt has
-// exited, then reports to done. If wt exits non-zero, done's error is of no
-// particular kind, with what wt said as its text. Without a wt to run,
-// nothing pauses: done gets that at once.
-func (c *Client) onTerminal(dir string, done tea.ExecCallback, args ...string) tea.Cmd {
-	cmd, err := c.command(dir, args...)
+// RunPick is the picker (`wt pick`), run in dir, which wt takes as the
+// invoking worktree: a new worktree copies its local files, and a new branch
+// starts from its branch unless the picker is told otherwise. It runs on this
+// process's own terminal, a popup's, for the picker's dialog, and returns
+// once wt has exited, with what wt said it did (see lastMessage), e.g. the
+// session it opened; nothing if the picker was cancelled. wt exits 0 whether
+// the picker opened something or was cancelled; if it fails, the error's text
+// is what it said on stderr, which the terminal showed too.
+func (c *Client) RunPick(dir string) (string, error) {
+	cmd, err := c.command(dir, "pick")
 	if err != nil {
-		return func() tea.Msg { return done(err) }
+		return "", err
 	}
-	return tea.Exec(&terminalRun{cmd: cmd}, done)
+	cmd.Stdin = os.Stdin
+	return onTerminal(cmd, os.Stdout, os.Stderr)
 }
 
-// terminalRun is wt run by tea.Exec, which hands it the terminal's input and
-// output. What wt says on stderr goes to the terminal too, since its prompts
-// are there (e.g. for a new session's name), and is also kept, for the
-// error if wt fails.
-type terminalRun struct {
-	cmd    *exec.Cmd
-	stderr io.Writer // the terminal's
+// OpenAndSwitch has wt open the session of the main clone or worktree at
+// path, as Open does, then switch the tmux client wt runs in to it (`wt
+// <path>`): in a popup of wtui's, the one TMUX_KIT_CLIENT names. It's for
+// inside tmux: outside, wt would attach this process's terminal instead.
+// wt runs in dir, as for List. It returns what wt said it did, as Open does.
+// If wt fails, the error's text is what it said.
+func (c *Client) OpenAndSwitch(dir, path string) (string, error) {
+	if os.Getenv("TMUX") == "" {
+		return "", errors.New("wt can only switch to a session inside tmux")
+	}
+	out, err := c.run(dir, noKind, path)
+	return lastMessage(string(out)), err
 }
 
-func (r *terminalRun) SetStdin(in io.Reader)   { r.cmd.Stdin = in }
-func (r *terminalRun) SetStdout(out io.Writer) { r.cmd.Stdout = out }
-func (r *terminalRun) SetStderr(out io.Writer) { r.stderr = out }
-
-func (r *terminalRun) Run() error {
-	// A pipe of wtui's own, not exec's: exec would wait for every process
-	// holding it to let go, and wt can leave one running in the background.
-	read, write, err := os.Pipe()
+// GitUICommand is the command line (words, for no shell) that runs the
+// user's git UI (`wt git-ui <path>`) in the main clone or worktree at path,
+// on a terminal of its own that closes once it exits: a floating pane or a
+// popup. If wt fails (e.g. no git UI is configured, or it isn't installed),
+// or the git UI exits non-zero, what either said stays on that terminal
+// until a key is pressed. The command line runs in the terminal's
+// environment, not wtui's, so wt is named by its path.
+func (c *Client) GitUICommand(path string) ([]string, error) {
+	bin, err := c.find()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	stderr := &stderrCopy{terminal: r.stderr}
-	copied := make(chan struct{})
-	go func() {
-		io.Copy(stderr, read) // until everything holding the pipe has let go
-		read.Close()
-		close(copied)
-	}()
-	r.cmd.Stderr = write
-	err = r.cmd.Run()
-	write.Close()
-	// What wt left running can go on holding it: wtui waits for that only so
-	// long, or it would stay paused. After that, what comes is drained, not
-	// shown, since wtui has the terminal back; nor cut off, which would kill
-	// the writer.
-	select {
-	case <-copied:
-	case <-time.After(stderrGrace):
+	// sh, not the user's shell, and a key without enter
+	const keep = `"$@" || { printf '\npress any key to close'; stty -icanon -echo 2>/dev/null; dd bs=1 count=1 >/dev/null 2>&1; }`
+	return []string{"/bin/sh", "-c", keep, "sh", bin, "git-ui", path}, nil
+}
+
+// onTerminal runs cmd, a wt command on the terminal's stdin. What wt says on
+// stdout and stderr goes to the terminal's, stdout and stderr, since its
+// dialog is there (e.g. a prompt for a new session's name), and is also kept:
+// stdout for what wt said it did (see lastMessage), which onTerminal returns,
+// and stderr for the error if wt exits non-zero: then the error is of no
+// particular kind, with what wt said as its text.
+func onTerminal(cmd *exec.Cmd, stdout, stderr io.Writer) (string, error) {
+	out, err := newOutputCopy(stdout)
+	if err != nil {
+		return "", err
 	}
-	said := stderr.stop()
+	errs, err := newOutputCopy(stderr)
+	if err != nil {
+		out.write.Close()
+		return "", err
+	}
+	cmd.Stdout, cmd.Stderr = out.write, errs.write
+	err = cmd.Run()
+	out.write.Close()
+	errs.write.Close()
+	// What wt left running can go on holding them: wtui waits for that only
+	// so long, or the popup would stay open. After that, what comes is
+	// drained, not shown, since wt is done with the terminal; nor cut off,
+	// which would kill the writer.
+	letGo := time.Now().Add(outputGrace)
+	said, wtErr := out.stop(letGo), errs.stop(letGo)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return &callError{nil, failureText(beforePrompt(said), exit)}
+		return "", &callError{nil, failureText(beforePrompt(wtErr), exit)}
 	}
-	return err
+	if err != nil {
+		return "", err
+	}
+	return lastMessage(said), nil
 }
 
-// stderrGrace is how long wtui waits, once wt has exited, for what wt left
-// running to let go of its stderr.
-const stderrGrace = time.Second
+// outputGrace is how long wtui waits, once wt has exited, for what wt left
+// running to let go of its stdout and stderr.
+const outputGrace = time.Second
 
-// stderrCopy is wt's stderr on its way to the terminal, kept as well, until
-// stop.
-type stderrCopy struct {
+// outputCopy is one of wt's outputs on its way to the terminal, kept as
+// well, until stop. It reaches wtui through a pipe of wtui's own, not exec's:
+// exec would wait for every process holding it to let go, and wt can leave
+// one running in the background.
+type outputCopy struct {
+	write  *os.File // wt's end of the pipe
+	copied chan struct{}
+
 	mu       sync.Mutex
 	terminal io.Writer
 	kept     bytes.Buffer
 	stopped  bool
 }
 
-func (c *stderrCopy) Write(p []byte) (int, error) {
+// newOutputCopy is a copy of one of wt's outputs to terminal, copying from
+// now on.
+func newOutputCopy(terminal io.Writer) (*outputCopy, error) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	c := &outputCopy{write: write, copied: make(chan struct{}), terminal: terminal}
+	go func() {
+		io.Copy(c, read) // until everything holding the pipe has let go
+		read.Close()
+		close(c.copied)
+	}()
+	return c, nil
+}
+
+func (c *outputCopy) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.stopped {
@@ -218,8 +259,13 @@ func (c *stderrCopy) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// stop has what comes after be dropped, and returns what was kept.
-func (c *stderrCopy) stop() string {
+// stop waits until everything holding the pipe has let go, but no later than
+// letGo, then has what comes after be dropped, and returns what was kept.
+func (c *outputCopy) stop(letGo time.Time) string {
+	select {
+	case <-c.copied:
+	case <-time.After(time.Until(letGo)):
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stopped = true
@@ -255,6 +301,11 @@ func (c *Client) run(dir string, kindOf func(status int) error, args ...string) 
 	if err != nil {
 		return nil, err
 	}
+	return output(cmd, kindOf)
+}
+
+// output runs cmd, a wt command, and returns its stdout, as run does.
+func output(cmd *exec.Cmd, kindOf func(status int) error) ([]byte, error) {
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

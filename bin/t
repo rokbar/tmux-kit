@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# t [name]: attach/switch to a tmux session for the current dir (default name:
-# folder, minus a leading dot; . and : -> _), creating it if needed.
+# t [-d] [name]: attach/switch to a tmux session for the current dir (default
+# name: folder, minus a leading dot; . and : -> _), creating it if needed.
+# -d: only create it (detached) if needed and print its name; never switch/attach.
+# Inside tmux, it switches the client TMUX_KIT_CLIENT names, if set (wtui's
+# popups set it: tmux's own pick, in a popup, is the client used last).
 set -euo pipefail
+detach=0
+if [ "${1:-}" = -d ]; then detach=1; shift; fi
 name="${1:-$(basename "$PWD")}"
 name="${name#.}"
 name="${name//[.:]/_}"
-if [ -n "${TMUX:-}" ]; then
+if [ "$detach" = 1 ] || [ -n "${TMUX:-}" ]; then
   tmux has-session -t "=$name" 2>/dev/null || tmux new -d -s "$name" -c "$PWD"
-  tmux switch-client -t "=$name"
+  if [ "$detach" = 1 ]; then echo "$name"; else tmux switch-client ${TMUX_KIT_CLIENT:+-c "$TMUX_KIT_CLIENT"} -t "=$name"; fi
 else
   exec tmux new -A -s "$name" -c "$PWD"
 fi

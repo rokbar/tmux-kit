@@ -14,7 +14,9 @@ tmp="$(cd "$tmp" && pwd -P)"
 unset TMUX TMUX_PANE XDG_CONFIG_HOME GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE FZF_DEFAULT_OPTS FZF_DEFAULT_OPTS_FILE
 export TMUX_TMPDIR="$tmp" WT_CONFIG=/dev/null HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-cleanup() { tmux kill-server 2>/dev/null || true; rm -rf "$tmp"; }
+# The server is named by its socket (tmux's default in $tmp): with TMUX_TMPDIR
+# alone, tmux looks in /tmp if that folder has gone, for the user's own server.
+cleanup() { tmux -S "$tmp/tmux-$(id -u)/default" kill-server 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 
 mkdir -p "$HOME"

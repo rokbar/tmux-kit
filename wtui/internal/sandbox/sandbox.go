@@ -8,6 +8,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,11 +62,16 @@ func New(t testing.TB) *Sandbox {
 	s.Write("home/.tmux.conf", "set -g default-command 'cat >/dev/null'\n")
 
 	// Registered after the temp folder's removal, so it runs before it: the
-	// socket has to still be there for kill-server to reach the server.
+	// socket has to still be there for kill-server to reach the server. And
+	// so do the test's own cleanups, registered later, so what it started
+	// (e.g. a Watch's control client) has ended before the folder goes. The
+	// server is named by its socket in that folder (tmux's default there):
+	// with TMUX_TMPDIR alone, tmux would look in /tmp if the folder had gone,
+	// and find the user's own server.
 	if tmux, err := exec.LookPath("tmux"); err == nil {
+		socket := filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), "default")
 		t.Cleanup(func() {
-			kill := exec.Command(tmux, "kill-server")
-			kill.Env = append(os.Environ(), "TMUX_TMPDIR="+dir)
+			kill := exec.Command(tmux, "-S", socket, "kill-server")
 			kill.Run() // fails when no server was started
 		})
 	}

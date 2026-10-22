@@ -125,6 +125,25 @@ func TestWtRunsWithGitTerminalPromptOff(t *testing.T) {
 	}
 }
 
+// wtui lists worktrees every few seconds, so the git status wt runs for it
+// must take no optional lock (refreshing the index): the user's own git
+// would find the index locked.
+func TestListRunsWithOptionalLocksOff(t *testing.T) {
+	s := sandbox.New(t)
+	demo := s.Repo("demo")
+	t.Setenv("GIT_OPTIONAL_LOCKS", "1")
+	t.Setenv("WT_BIN", s.Script("bin/wt",
+		`echo "$GIT_OPTIONAL_LOCKS" >'`+s.Path("locks")+`'; exec '`+s.Wt+`' "$@"`))
+	list(t, demo)
+	got, err := os.ReadFile(s.Path("locks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "0\n" {
+		t.Errorf("wt ls ran with GIT_OPTIONAL_LOCKS=%q, want 0", strings.TrimSpace(string(got)))
+	}
+}
+
 // The tmux server's PATH may lack ~/.local/bin, where install.sh puts both wt
 // and wtui, so a wt next to wtui comes before PATH; WT_BIN overrides both.
 func TestFindsWtByWtBinThenNextToWtuiThenOnPath(t *testing.T) {
@@ -245,6 +264,26 @@ func TestListsTheSessionAndDevURLOfWorktreesWtOpened(t *testing.T) {
 	})
 }
 
+// The sidebar lists every project it shows, wherever wtui runs: run in a
+// project's main clone, the list is that project's, from a folder outside it.
+func TestListsAProjectFromOutsideIt(t *testing.T) {
+	s := sandbox.New(t)
+	api := s.Repo("api")
+	fix, _ := s.NewWorktree(api, "fix")
+	docs, _ := s.NewWorktree(s.Repo("docs"), "draft")
+	s.RunWt(docs, "-d", "main")
+	t.Chdir(s.Path("home"))
+
+	sameRows(t, list(t, api), []wt.Worktree{
+		{Path: api, Branch: "main", State: wt.Clean, MainClone: true},
+		{Path: fix, Branch: "fix", State: wt.Clean, Session: "fix"},
+	})
+	sameRows(t, list(t, s.Path("docs")), []wt.Worktree{
+		{Path: s.Path("docs"), Branch: "main", State: wt.Clean, Session: "main", MainClone: true},
+		{Path: docs, Branch: "draft", State: wt.Clean, Session: "draft"},
+	})
+}
+
 // Opening a worktree that has no session starts one there, as wt names it by
 // default (its branch, else its folder), so the next list shows it. This works
 // for the main clone and a worktree mid-rebase too, which has no branch.
@@ -258,7 +297,7 @@ func TestOpenStartsASessionInTheWorktree(t *testing.T) {
 
 	c := wt.New("")
 	for _, path := range []string{feat, rebase, demo} {
-		if err := c.Open(demo, path); err != nil {
+		if _, err := c.Open(demo, path); err != nil {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 	}
@@ -267,6 +306,27 @@ func TestOpenStartsASessionInTheWorktree(t *testing.T) {
 		{Path: feat, Branch: "feat", State: wt.Clean, Session: "feat"},
 		{Path: rebase, State: wt.Dirty, Session: "demo--rebase"},
 	})
+}
+
+// Opening says what wt said it did: the worktree's folder and its session,
+// whether wt started the session or found it there.
+func TestOpenSaysWhatWtSaid(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	demo := s.Repo("demo")
+	feat := s.Path("demo--feat")
+	s.Git(demo, "worktree", "add", "-q", feat, "-b", "feat")
+
+	c := wt.New("")
+	for _, when := range []string{"started", "already there"} {
+		said, err := c.Open(demo, feat)
+		if err != nil {
+			t.Fatalf("Open(%s), session %s: %v", feat, when, err)
+		}
+		if want := "wt: " + feat + " (tmux session feat)"; said != want {
+			t.Errorf("Open(%s), session %s, said %q, want wt's message %q", feat, when, said, want)
+		}
+	}
 }
 
 // A failed open reads as what wt said, e.g. for a worktree whose folder is gone.
@@ -287,7 +347,7 @@ func TestFailedOpenCarriesWtsMessage(t *testing.T) {
 		t.Fatalf("wt -d %s worked, want it to fail", gone)
 	}
 
-	err := wt.New("").Open(demo, gone)
+	_, err := wt.New("").Open(demo, gone)
 	if err == nil {
 		t.Fatalf("Open(%s) worked, want it to fail", gone)
 	}
