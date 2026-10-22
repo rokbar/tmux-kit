@@ -252,6 +252,18 @@ func TestWatchSaysSoWhenTheServerEnds(t *testing.T) {
 	next(t, w, "no session to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == "" })
 }
 
+// So it does while the server is on its way out, before it has exited.
+func TestWatchSaysSoAsTheServerEnds(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	w := started(t, "a")
+	waitFor(t, "the control client to be on a", onSession(t, "a"))
+	killSlowly(t)
+	next(t, w, "the sessions to have changed", always[tmux.SessionsChanged])
+	next(t, w, "no session to be active", func(e tmux.ActiveSessionChanged) bool { return e.Session == "" })
+}
+
 // A subscription's format is about the whole server, not only the control
 // client's session: its value comes at once, and again whenever it changes
 // (tmux looks once a second).

@@ -410,14 +410,16 @@ func (c *Client) output(args ...string) (string, error) {
 }
 
 // noServer says whether err is tmux finding no server to talk to: no socket,
-// or one a server has left behind.
+// one a server has left behind, or a server on its way out (e.g. its last
+// session has just ended), which closes each connection it's given.
 func noServer(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
 	return strings.HasPrefix(msg, "no server running on ") ||
-		strings.HasPrefix(msg, "error connecting to ") && strings.HasSuffix(msg, "(No such file or directory)")
+		strings.HasPrefix(msg, "error connecting to ") && strings.HasSuffix(msg, "(No such file or directory)") ||
+		msg == "server exited unexpectedly"
 }
 
 func (c *Client) command(args ...string) *exec.Cmd {

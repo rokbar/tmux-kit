@@ -24,6 +24,19 @@ func tmuxRun(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// killSlowly kills the sandbox's server, which is then on its way out for
+// 2 s, as a server is once its last session has ended: until it exits, it
+// closes each connection it's given, and tmux says it exited unexpectedly.
+// What holds it up is a job, which it waits for.
+func killSlowly(t *testing.T) {
+	t.Helper()
+	tmuxRun(t, "set-hook", "-g", "session-closed", "run-shell 'sleep 2'")
+	tmuxRun(t, "kill-server")
+	if out, _ := exec.Command("tmux", "list-sessions").CombinedOutput(); !strings.Contains(string(out), "exited unexpectedly") {
+		t.Fatalf("the server should be on its way out, but list-sessions says %q", out)
+	}
+}
+
 func TestOlder(t *testing.T) {
 	for _, c := range []struct {
 		v    string
@@ -199,11 +212,23 @@ func TestWithNoServerThereIsNoSession(t *testing.T) {
 	// a server that has gone leaves its socket behind
 	tmuxRun(t, "new-session", "-d", "-s", "a")
 	tmuxRun(t, "kill-server")
+	waitFor(t, "the server to have gone", func() bool {
+		out, _ := exec.Command("tmux", "list-sessions").CombinedOutput()
+		return strings.HasPrefix(string(out), "no server running on ")
+	})
 	if got, err := c.Snapshot(); err != nil || len(got.Sessions) != 0 {
 		t.Errorf("once the server has gone, Snapshot() = %+v, %v; want no sessions", got, err)
 	}
 	if out, err := exec.Command("tmux", "list-sessions").CombinedOutput(); err == nil {
 		t.Errorf("a server is running, with sessions %s", out)
+	}
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	killSlowly(t)
+	if got, err := c.Snapshot(); err != nil || len(got.Sessions) != 0 {
+		t.Errorf("as the server exits, Snapshot() = %+v, %v; want no sessions", got, err)
+	}
+	if got, err := c.ActiveSession(); err != nil || got != "" {
+		t.Errorf("as the server exits, ActiveSession() = %q, %v; want none", got, err)
 	}
 }
 
