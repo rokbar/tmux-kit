@@ -314,8 +314,7 @@ session. Re-running it is safe. Re-run it if you move the clone: until then,
 the plugin doesn't load. Agents already running pick the plugin up once you
 restart them.
 
-Or in Claude Code, from this repo's marketplace (while the repo is private,
-this needs access to it):
+Or in Claude Code, from this repo's marketplace:
 
 ```
 /plugin marketplace add rokbar/tmux-kit
@@ -324,3 +323,7 @@ this needs access to it):
 
 To list it in a marketplace of your own instead, give its entry the source
 `{"source": "git-subdir", "url": "rokbar/tmux-kit", "path": "claude-plugin"}`.
+
+## License
+
+[MIT](LICENSE)
