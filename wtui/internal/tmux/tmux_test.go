@@ -232,6 +232,24 @@ func TestWithNoServerThereIsNoSession(t *testing.T) {
 	}
 }
 
+// A server can have no session: once its last has ended, until it exits (or
+// for good, with exit-empty off). Then too there's none, and the nested
+// client shows none.
+func TestWithNoSessionOnTheServerThereIsNone(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	tmuxRun(t, "new-session", "-d", "-s", "a")
+	tmuxRun(t, "set-option", "-g", "exit-empty", "off")
+	tmuxRun(t, "kill-session", "-t", "=a")
+	c := &tmux.Client{Nested: "/dev/ttys999"}
+	if got, err := c.Snapshot(); err != nil || len(got.Sessions) != 0 {
+		t.Errorf("with no session, Snapshot() = %+v, %v; want none", got, err)
+	}
+	if got, err := c.ActiveSession(); err != nil || got != "" {
+		t.Errorf("with no session, ActiveSession() = %q, %v; want none", got, err)
+	}
+}
+
 // waitFor polls cond every 0.1 s for up to 10 s.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()

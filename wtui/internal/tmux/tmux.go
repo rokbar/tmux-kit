@@ -202,7 +202,7 @@ func (c *Client) Editor() (string, error) {
 
 // Snapshot is the normal server's sessions, windows and agent states now,
 // and the agents whose state can't arrive, from one tmux command. With no
-// server running, there are none.
+// session (or no server running), there are none.
 func (c *Client) Snapshot() (Snapshot, error) {
 	// Tab-separated, free text last: tmux escapes tabs in names, and output
 	// keeps them (and UTF-8) since output runs tmux with -u.
@@ -211,7 +211,7 @@ func (c *Client) Snapshot() (Snapshot, error) {
 		"list-windows", "-a", "-F", "W\t"+windowFormat, ";",
 		"display-message", "-p", "A\t"+agentFormat, ";",
 		"display-message", "-p", "U\t"+unreportedFormat)
-	if noServer(err) {
+	if noSession(err) {
 		return Snapshot{}, nil
 	}
 	if err != nil {
@@ -261,10 +261,10 @@ func parseWindow(line string) (session string, w Window, ok bool) {
 }
 
 // ActiveSession is the id of the session the nested client shows, or ""
-// while it shows none (or there's no server).
+// while it shows none (or there's no session, or no server).
 func (c *Client) ActiveSession() (string, error) {
 	out, err := c.output("list-clients", "-F", "#{client_tty} #{session_id}")
-	if noServer(err) {
+	if noSession(err) {
 		return "", nil
 	}
 	if err != nil {
@@ -409,17 +409,21 @@ func (c *Client) output(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// noServer says whether err is tmux finding no server to talk to: no socket,
-// one a server has left behind, or a server on its way out (e.g. its last
-// session has just ended), which closes each connection it's given.
-func noServer(err error) bool {
+// noSession says whether err is a query of Snapshot's or ActiveSession's
+// finding no session on the server. That's no server to talk to (no socket,
+// or one a server has left behind), a server on its way out, which closes
+// each connection it's given, or a server with no session (once its last has
+// ended, until it exits), on which list-windows -a and list-clients look for
+// a current session and find no current target.
+func noSession(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
 	return strings.HasPrefix(msg, "no server running on ") ||
 		strings.HasPrefix(msg, "error connecting to ") && strings.HasSuffix(msg, "(No such file or directory)") ||
-		msg == "server exited unexpectedly"
+		msg == "server exited unexpectedly" ||
+		msg == "no current target"
 }
 
 func (c *Client) command(args ...string) *exec.Cmd {
