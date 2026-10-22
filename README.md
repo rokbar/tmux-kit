@@ -24,6 +24,10 @@ checks its checksum; re-run it to update. Or build it from the main branch
 with Go:
 `GOBIN="$HOME/.local/bin" go install github.com/rokbar/tmux-kit/wtui@latest`.
 
+Optional: `tmux-kit/install.sh --claude` also installs the
+[Claude Code plugin](#claude-code-plugin) from the clone, for wtui's agent
+states. Flags combine: `install.sh --wtui --claude`.
+
 Your own tmux settings go in `~/.tmux.local.conf` (sourced last, before TPM).
 
 ## Keys (prefix = C-b)
@@ -286,16 +290,28 @@ one tmux command against the agent's pane: outside tmux they do nothing, they
 never fail or print anything, and they run alongside your own hooks. It edits
 no settings file.
 
-Install it in Claude Code from this repo's marketplace:
+Install it from your clone (it needs `claude` on `PATH`):
+
+```sh
+tmux-kit/install.sh --claude
+```
+
+This points Claude Code's `tmux-kit` marketplace at the clone, adding it or
+moving it there from wherever it pointed before, then installs
+`agent-state@tmux-kit`, or updates it if it's already there. It changes your
+Claude Code user settings, which is why it's opt-in. Claude Code loads the
+plugin from the clone itself, so a `git pull` takes effect from the next
+session. Re-running it is safe. Re-run it if you move the clone: until then,
+the plugin doesn't load. Agents already running pick the plugin up once you
+restart them.
+
+Or in Claude Code, from this repo's marketplace (while the repo is private,
+this needs access to it):
 
 ```
 /plugin marketplace add rokbar/tmux-kit
 /plugin install agent-state@tmux-kit
 ```
 
-Or from a local checkout: `/plugin marketplace add /path/to/tmux-kit`, then
-the same install. Claude Code then loads the plugin from the checkout itself,
-so a `git pull` takes effect from the next session. From your shell, it's
-`claude plugin marketplace add …` and `claude plugin install …`. To list it in
-a marketplace of your own instead, give its entry the source
+To list it in a marketplace of your own instead, give its entry the source
 `{"source": "git-subdir", "url": "rokbar/tmux-kit", "path": "claude-plugin"}`.

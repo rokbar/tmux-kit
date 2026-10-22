@@ -3,15 +3,18 @@
 # files are moved to <file>.bak. Update later with: git pull
 # --wtui also installs (or updates) wtui from the latest GitHub release into
 # ~/.local/bin/wtui; WTUI_VERSION=<tag> picks another release.
+# --claude also installs (or updates) the agent-state Claude Code plugin from
+# this clone, through the claude CLI, which edits Claude Code's user settings.
 set -euo pipefail
 kit="$(cd "$(dirname "$0")" && pwd)"
 bin="$HOME/.local/bin"
 
-with_wtui=""
+with_wtui="" with_claude=""
 for arg in "$@"; do
   case "$arg" in
     --wtui) with_wtui=1 ;;
-    *) echo "unknown option: $arg (usage: install.sh [--wtui])" >&2; exit 1 ;;
+    --claude) with_claude=1 ;;
+    *) echo "unknown option: $arg (usage: install.sh [--wtui] [--claude])" >&2; exit 1 ;;
   esac
 done
 
@@ -67,6 +70,20 @@ install_wtui() {
   echo "installed $bin/wtui ($("$bin/wtui" --version 2>/dev/null || echo "$asset"))"
 }
 
+# Points marketplace tmux-kit at this clone (adding it, or re-pointing it in
+# place, which keeps its plugins: never marketplace remove, which uninstalls
+# them), then installs agent-state@tmux-kit and updates it to the clone's
+# commit. Each step is safe to re-run. Called as `install_claude || …`, like
+# install_wtui, so a failing step stops it by itself.
+install_claude() {
+  command -v claude >/dev/null || { echo "agent-state plugin: needs claude (Claude Code) on PATH" >&2; return 1; }
+  claude_plugin marketplace add "$kit" &&
+    claude_plugin install agent-state@tmux-kit &&
+    claude_plugin update agent-state@tmux-kit || return 1
+  echo "installed the agent-state plugin; restart running Claude Code sessions to load it"
+}
+claude_plugin() { claude plugin "$@" || { echo "agent-state plugin: claude plugin $* failed" >&2; return 1; }; }
+
 mkdir -p "$bin"
 link "$kit/tmux.conf" "$HOME/.tmux.conf"
 link "$kit/bin/wt" "$bin/wt"
@@ -83,9 +100,13 @@ missing=""
 for cmd in tmux git fzf; do command -v "$cmd" >/dev/null || missing+=" $cmd"; done
 if [ -n "$missing" ]; then echo "missing:$missing (brew install$missing)"; fi
 case ":$PATH:" in *":$bin:"*) ;; *) echo "add $bin to PATH" ;; esac
-# if it fails, the rest still runs (the reload too) and install.sh exits 1
+# if either fails, the rest still runs (the reload too) and install.sh exits 1
 wtui_failed=""
 if [ -n "$with_wtui" ]; then install_wtui || wtui_failed=1; fi
+claude_failed=""
+if [ -n "$with_claude" ]; then install_claude || claude_failed=1; fi
 if [ -n "${TMUX:-}" ]; then tmux source-file "$HOME/.tmux.conf" && echo "reloaded tmux config"; fi
-if [ -n "$wtui_failed" ]; then echo "wtui not installed" >&2; exit 1; fi
+if [ -n "$wtui_failed" ]; then echo "wtui not installed" >&2; fi
+if [ -n "$claude_failed" ]; then echo "agent-state plugin not installed" >&2; fi
+if [ -n "$wtui_failed$claude_failed" ]; then exit 1; fi
 echo "done. optional: cp $kit/config.example.sh ~/.config/wt/config.sh"
