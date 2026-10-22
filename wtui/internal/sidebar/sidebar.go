@@ -136,6 +136,9 @@ type Model struct {
 	// agentsNewer is whether the agent states changed while the build ran,
 	// so they're newer than its snapshot's.
 	agentsNewer bool
+	// saidUnreported is whether the status line has said that agents can't
+	// show their state, which it says once a launch.
+	saidUnreported bool
 
 	active string // the active session, by id
 	// right is the session tmux last said the right side shows, by id:
@@ -342,7 +345,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 				tick = m.tick() // the first tree: its markers refresh from now on
 			}
 			m.unlisted = msg.unlisted
-			m = m.withSources(m.newerAgents(*msg.src)).toActive().sayUnlisted()
+			m = m.withSources(m.newerAgents(*msg.src)).toActive().sayUnlisted().sayUnreported()
 		}
 		m.agentsNewer = false
 		if m.again {

@@ -30,6 +30,25 @@ func (m Model) newerAgents(src tree.Sources) tree.Sources {
 	return src
 }
 
+// sayUnreported is the sidebar saying in the status line, once a launch,
+// how many agents run whose state can't arrive (see
+// tmux.Snapshot.Unreported), if any do. It's a hint, so the next key clears
+// it.
+func (m Model) sayUnreported() Model {
+	n := len(m.src.Snapshot.Unreported)
+	if n == 0 || m.saidUnreported {
+		return m
+	}
+	m.saidUnreported = true
+	// Worded to fit 3 lines at the default width with --claude on one line
+	// (the status line breaks lines at hyphens too).
+	m.status.hint = fmt.Sprintf("%d agents can't show their state: install.sh --claude, then restart them", n)
+	if n == 1 {
+		m.status.hint = "1 agent can't show its state: install.sh --claude, then restart it"
+	}
+	return m
+}
+
 // cleared is tmux having cleared done in a window, or why it couldn't.
 type cleared struct{ err error }
 

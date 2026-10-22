@@ -281,14 +281,23 @@ tmux pane, for wtui to show, or for you with `tmux show -p`:
 | --- | --- |
 | `@agent_state` | `working` once you submit a prompt, and after each tool call (so again once you answer a permission prompt); `needs-you` while it waits on you to answer a permission prompt or a question (its own or an MCP server's); `done` when it finishes its turn |
 | `@agent_state_at` | when that was set, in seconds since the epoch |
+| `@agent_plugin` | `1` from the moment the agent starts, and never unset: the pane's agent has the plugin |
 
-Quitting Claude Code (or `/clear`) unsets both. Claude Code reports a
+Quitting Claude Code (or `/clear`) unsets the first two. Claude Code reports a
 prompt or question only once it has waited about six seconds with nothing
 typed, so `needs-you` comes that much later (answer sooner and it stays
 `working`); its idle reminders change nothing. The plugin is hooks only, each
 one tmux command against the agent's pane: outside tmux they do nothing, they
 never fail or print anything, and they run alongside your own hooks. It edits
 no settings file.
+
+wtui uses `@agent_plugin` to tell an agent that just hasn't reported yet from
+one whose state can never arrive: Claude Code running in a pane without the
+mark, because the plugin isn't installed or the agent started before it was.
+Once per launch, the status line then says something like
+`2 agents can't show their state: install.sh --claude, then restart them`.
+It only recognizes Claude Code running as `claude` (the native install), not
+an npm install, which runs as `node`.
 
 Install it from your clone (it needs `claude` on `PATH`):
 

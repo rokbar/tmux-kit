@@ -1,6 +1,13 @@
 {
   "description": "Keep each agent's state on its tmux pane: @agent_state (working, needs-you or done) and @agent_state_at",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/agent-state.sh\" start" }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -377,5 +378,75 @@ func TestAFailedClearSaysWhy(t *testing.T) {
 	}
 	if got := plain(m); !strings.HasSuffix(got, "\ncan't find pane: %2") {
 		t.Errorf("view:\n%s\nwant it to end with the failure", got)
+	}
+}
+
+// When agents run whose state can't arrive (Claude Code without tmux-kit's
+// plugin, see tmux.Snapshot.Unreported), the first build says so in the
+// status line, as a hint: how many, and how to fix it.
+func TestUnreportedAgentsAreHinted(t *testing.T) {
+	for _, c := range []struct {
+		panes []string
+		want  string
+	}{
+		{[]string{"%1", "%4"}, "2 agents can't show their state: install.sh --claude, then restart them"},
+		{[]string{"%4"}, "1 agent can't show its state: install.sh --claude, then restart it"},
+	} {
+		f := fixture()
+		f.normal.snap.Unreported = c.panes
+		m := started(t, f)
+		if !strings.HasSuffix(plain(m), "\n"+c.want) {
+			t.Errorf("with %d unreported agents, the view is:\n%s\nwant it to end with:\n%s", len(c.panes), plain(m), c.want)
+		}
+	}
+}
+
+// The hint about unreported agents shows once a launch, until the next key.
+// One build without any says nothing, so an agent started later is hinted
+// at the next build (e.g. a session's creation, or r).
+func TestUnreportedAgentsAreHintedOnceALaunch(t *testing.T) {
+	const hint = "can't show"
+	f := fixture()
+	m := started(t, f)
+	if strings.Contains(plain(m), hint) {
+		t.Errorf("with no unreported agents, the view is:\n%s", plain(m))
+	}
+	rebuilt := func(m Model) Model {
+		t.Helper()
+		m, cmd := update(t, m, Rebuild{})
+		return feed(t, m, cmd)
+	}
+
+	f.normal.snap.Unreported = []string{"%4"}
+	if m = rebuilt(m); !strings.Contains(plain(m), hint) {
+		t.Errorf("a build with an unreported agent, after one without, doesn't say so:\n%s", plain(m))
+	}
+	if m = keys(t, m, press("j")); strings.Contains(plain(m), hint) {
+		t.Errorf("after the next key, the view still has the hint:\n%s", plain(m))
+	}
+	f.normal.snap.Unreported = []string{"%1", "%4"}
+	if m = rebuilt(m); strings.Contains(plain(m), hint) {
+		t.Errorf("a second build with unreported agents says so again:\n%s", plain(m))
+	}
+}
+
+// At the sidebar's default width, the whole hint shows, however many agents
+// there are: the status line wraps it, but cuts it short after 3 lines, and
+// breaks lines at hyphens too, which would split --claude.
+func TestTheUnreportedAgentsHintFitsTheSidebar(t *testing.T) {
+	for n, want := range map[int]string{
+		1:   "1 agent can't show its state: install.sh --claude, then restart it",
+		17:  "17 agents can't show their state: install.sh --claude, then restart them",
+		100: "100 agents can't show their state: install.sh --claude, then restart them",
+	} {
+		f := fixture()
+		for i := range n {
+			f.normal.snap.Unreported = append(f.normal.snap.Unreported, fmt.Sprintf("%%%d", i))
+		}
+		m := started(t, f)
+		m, _ = update(t, m, tea.WindowSizeMsg{Width: tmux.DefaultWidth, Height: 30})
+		if got := strings.Join(strings.Fields(plain(m)), " "); !strings.Contains(got, want) {
+			t.Errorf("at width %d, the view doesn't show the whole hint %q:\n%s", tmux.DefaultWidth, want, plain(m))
+		}
 	}
 }

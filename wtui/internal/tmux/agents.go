@@ -1,6 +1,9 @@
 package tmux
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // AgentState is what an agent last reported it's doing, as its pane's
 // @agent_state option says (tmux-kit's Claude Code plugin sets it). States
@@ -38,6 +41,25 @@ func (AgentsChanged) event() {}
 // pane as session|window|pane|state; (a , would start the format for the
 // item tmux is at).
 const agentFormat = "#{S:#{W:#{P:#{?@agent_state,#{session_id}|#{window_id}|#{pane_id}|#{@agent_state};,}}}}"
+
+// unreportedFormat is every pane on the server that runs an agent whose
+// state can't arrive, for parseUnreported: one running Claude Code (a
+// process named claude: an npm install runs as node, as dev servers do, so
+// it can't be told apart) that tmux-kit's plugin hasn't marked
+// (@agent_plugin), because the agent doesn't have the plugin. Each pane as
+// id; and once per session its window is in.
+const unreportedFormat = "#{S:#{W:#{P:#{?#{==:#{pane_current_command},claude},#{?@agent_plugin,,#{pane_id};},}}}}"
+
+// parseUnreported is unreportedFormat's value: the panes, each once.
+func parseUnreported(value string) []string {
+	var panes []string
+	for _, pane := range strings.Split(value, ";") {
+		if pane != "" && !slices.Contains(panes, pane) {
+			panes = append(panes, pane)
+		}
+	}
+	return panes
+}
 
 // parseAgents is agentFormat's value: the panes with an agent state. One
 // whose @agent_state isn't a state is left out.

@@ -72,6 +72,9 @@ func (c *Client) Pin() error {
 type Snapshot struct {
 	Sessions []Session // by name
 	Agents   []Agent
+	// Unreported are the panes (ids) of the agents whose state can't arrive
+	// (see unreportedFormat).
+	Unreported []string
 }
 
 // Session is a session on the normal server.
@@ -198,14 +201,16 @@ func (c *Client) Editor() (string, error) {
 }
 
 // Snapshot is the normal server's sessions, windows and agent states now,
-// from one tmux command. With no server running, there are none.
+// and the agents whose state can't arrive, from one tmux command. With no
+// server running, there are none.
 func (c *Client) Snapshot() (Snapshot, error) {
 	// Tab-separated, free text last: tmux escapes tabs in names, and output
 	// keeps them (and UTF-8) since output runs tmux with -u.
 	out, err := c.output(
 		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_name}\t#{session_path}", ";",
 		"list-windows", "-a", "-F", "W\t"+windowFormat, ";",
-		"display-message", "-p", "A\t"+agentFormat)
+		"display-message", "-p", "A\t"+agentFormat, ";",
+		"display-message", "-p", "U\t"+unreportedFormat)
 	if noServer(err) {
 		return Snapshot{}, nil
 	}
@@ -234,6 +239,8 @@ func (c *Client) Snapshot() (Snapshot, error) {
 			}
 		case "A":
 			snap.Agents = parseAgents(rest)
+		case "U":
+			snap.Unreported = parseUnreported(rest)
 		}
 	}
 	return snap, nil

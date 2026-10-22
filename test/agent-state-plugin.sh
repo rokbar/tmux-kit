@@ -2,7 +2,9 @@
 # The Claude Code plugin's hooks (claude-plugin/hooks/hooks.json), run as
 # Claude Code runs them: each matching command through sh, with the event's
 # JSON on stdin and $TMUX_PANE from the agent's pane. Each sets that pane's
-# @agent_state and @agent_state_at, or unsets both, and prints nothing.
+# @agent_state and @agent_state_at, or unsets both, and prints nothing. Each
+# but SessionEnd marks the pane as the plugin's (@agent_plugin), and nothing
+# unmarks it.
 # Also: the repo root's marketplace lists the plugin.
 set -euo pipefail
 # shellcheck source=test/lib/sandbox.sh
@@ -48,7 +50,7 @@ commands_for() {
 # on stdin. Each must exit 0 and print nothing.
 hook() {
   local event="$1" value="${2:-}" cmd status
-  local input="{\"session_id\":\"s1\",\"cwd\":\"$tmp\",\"hook_event_name\":\"$event\",\"notification_type\":\"$value\",\"reason\":\"$value\"}"
+  local input="{\"session_id\":\"s1\",\"cwd\":\"$tmp\",\"hook_event_name\":\"$event\",\"notification_type\":\"$value\",\"reason\":\"$value\",\"source\":\"$value\"}"
   while IFS= read -r cmd; do
     status=0
     (cd "$tmp" && CLAUDE_PLUGIN_ROOT="$plugin" sh -c "$cmd" <<<"$input" >"$tmp/out" 2>"$tmp/err") || status=$?
@@ -60,6 +62,9 @@ hook() {
 
 # <pane>'s @agent_state and @agent_state_at, as "<state> <at>" (empty if unset)
 state_of() { tmux display -p -t "$1" '#{@agent_state} #{@agent_state_at}'; }
+
+# <pane>'s @agent_plugin (empty if unset)
+mark_of() { tmux display -p -t "$1" '#{@agent_plugin}'; }
 
 # <pane> says <state>, set between epoch seconds <after> and now
 says() {
@@ -75,7 +80,7 @@ says() {
 # every hook, with a matcher value that runs it, then <command> after each
 every_hook() {
   local h
-  for h in UserPromptSubmit "PostToolUse Bash" "PostToolUseFailure Bash" "Notification permission_prompt" Stop "SessionEnd other"; do
+  for h in "SessionStart startup" UserPromptSubmit "PostToolUse Bash" "PostToolUseFailure Bash" "Notification permission_prompt" Stop "SessionEnd other"; do
     # shellcheck disable=SC2086 # split into event and matcher value
     hook $h
     "${@:-true}"
@@ -87,6 +92,24 @@ tmux new-session -d -s s 'cat >/dev/null'
 agent="$(tmux display -p -t s '#{pane_id}')"
 other="$(tmux new-window -P -F '#{pane_id}' -t s 'cat >/dev/null')"
 export TMUX_PANE="$agent"
+
+# starting (or resuming, clearing, compacting, forking) marks the pane, and
+# sets no state
+for source in startup resume clear compact fork; do
+  tmux set -pu -t "$agent" @agent_plugin
+  hook SessionStart "$source"
+  [ "$(mark_of "$agent")" = 1 ] || fail "after SessionStart ($source), $agent's @agent_plugin is '$(mark_of "$agent")'"
+  [ "$(state_of "$agent")" = " " ] || fail "SessionStart ($source) set a state: $(state_of "$agent")"
+done
+
+# each state marks the pane too: an agent that picked the plugin up without
+# starting again (/reload-plugins) is marked once it reports anything
+for h in UserPromptSubmit "PostToolUse Bash" "PostToolUseFailure Bash" "Notification permission_prompt" Stop; do
+  tmux set -pu -t "$agent" @agent_plugin
+  # shellcheck disable=SC2086 # split into event and matcher value
+  hook $h
+  [ "$(mark_of "$agent")" = 1 ] || fail "after $h, $agent's @agent_plugin is '$(mark_of "$agent")'"
+done
 
 t0="$(date +%s)"
 hook UserPromptSubmit
@@ -123,21 +146,25 @@ for type in idle_prompt auth_success elicitation_complete elicitation_response; 
     fail "a $type notification changed the state from '$done_at' to '$(state_of "$agent")'"
 done
 
-# quitting, or /clear, unsets both options
+# quitting, or /clear, unsets both options, and leaves the mark
 for reason in prompt_input_exit clear; do
   hook UserPromptSubmit
   hook SessionEnd "$reason"
   opts="$(tmux show -p -t "$agent")"
   case "$opts" in *@agent_state*) fail "after SessionEnd ($reason), $agent has: $opts" ;; esac
+  [ "$(mark_of "$agent")" = 1 ] || fail "SessionEnd ($reason) unmarked $agent"
 done
 
 # only the agent's own pane was ever touched
 [ "$(state_of "$other")" = " " ] || fail "the hooks set $other, not the agent's pane: $(state_of "$other")"
+[ -z "$(mark_of "$other")" ] || fail "the hooks marked $other, not the agent's pane"
 
 # outside tmux, every hook does nothing, silently
 hook UserPromptSubmit
+tmux set -pu -t "$agent" @agent_plugin
 before="$(state_of "$agent")"
 unchanged() {
+  [ -z "$(mark_of "$agent")" ] || fail "with no \$TMUX_PANE, a hook marked $agent"
   [ "$(state_of "$agent")" = "$before" ] || fail "with no \$TMUX_PANE, a hook changed $agent from '$before' to '$(state_of "$agent")'"
   [ "$(state_of "$other")" = " " ] || fail "with no \$TMUX_PANE, a hook set $other: $(state_of "$other")"
 }

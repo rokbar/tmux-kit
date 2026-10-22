@@ -2,7 +2,9 @@ package tmux_test
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -89,6 +91,67 @@ func TestSnapshotHasTheAgentStates(t *testing.T) {
 	}
 	if want := []string{"a:1.0 done", "b c:0.1 needs-you"}; !slices.Equal(agentsOf(t, got.Agents), want) {
 		t.Errorf("the snapshot's agents are %q, want %q", agentsOf(t, got.Agents), want)
+	}
+}
+
+// claudeCommand is a command line for a pane that runs a stand-in for
+// Claude Code, a process named claude: this test binary, copied as claude,
+// running TestHelperClaude, which waits until it's killed.
+func claudeCommand(t *testing.T, s *sandbox.Sandbox) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := s.Path("bin/claude")
+	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claude, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("WTUI_TEST_CLAUDE=1 exec '%s' -test.run='^TestHelperClaude$'", claude)
+}
+
+// TestHelperClaude isn't a test: it's the stand-in claudeCommand runs.
+func TestHelperClaude(t *testing.T) {
+	if os.Getenv("WTUI_TEST_CLAUDE") == "" {
+		return
+	}
+	time.Sleep(time.Hour)
+}
+
+// The snapshot has the agents whose state can't arrive: the panes running
+// Claude Code that tmux-kit's plugin hasn't marked, each once, though a
+// linked window's panes are in each of its sessions. Not a pane the plugin
+// marked, nor one running another program.
+func TestSnapshotHasTheUnreportedAgents(t *testing.T) {
+	s := sandbox.New(t)
+	s.NeedTmux()
+	claude := claudeCommand(t, s)
+	tmuxRun(t, "new-session", "-d", "-s", "a", "sleep 1000")
+	tmuxRun(t, "new-window", "-d", "-t", "=a:", claude)
+	tmuxRun(t, "new-session", "-d", "-s", "b", claude)
+	tmuxRun(t, "split-window", "-d", "-t", "=b:0", claude)
+	tmuxRun(t, "link-window", "-d", "-s", "=a:1", "-t", "=b:5")
+	tmuxRun(t, "set-option", "-p", "-t", pane(t, "=b:0.0"), "@agent_plugin", "1")
+	waitFor(t, "three panes running claude", func() bool {
+		return strings.Count(tmuxRun(t, "list-panes", "-a", "-F", "#{pane_current_command}"), "claude") == 4 // a:1's twice
+	})
+
+	got, err := (&tmux.Client{}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got.Unreported)
+	want := []string{pane(t, "=a:1.0"), pane(t, "=b:0.1")}
+	slices.Sort(want)
+	if !slices.Equal(got.Unreported, want) {
+		t.Errorf("the snapshot's unreported agents are %q, want %q (a:1.0 and b:0.1)", got.Unreported, want)
 	}
 }
 
