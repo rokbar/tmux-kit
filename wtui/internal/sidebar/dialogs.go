@@ -90,13 +90,22 @@ type dialogClosed struct {
 // line says what the dialog said, and afterAction follows. The dialog may
 // have shown another session on the right (e.g. the picker's), and focus is
 // back on the sidebar, but tmux's word on either may come in any order. So
-// the sidebar reads the active session again, and its cursor goes there.
+// the sidebar reads the active session again, and its cursor goes there once
+// that's read, whatever came first (focus, or the tree built again with a
+// session the dialog made), which may have put it on the session before.
 func (m Model) withClosed(d dialogClosed) (Model, tea.Cmd) {
 	m.status.action = d.text()
-	m.seek = true
 	m, refresh := m.afterAction()
-	return m, tea.Batch(refresh, m.readActive)
+	normal := m.c.Normal
+	return m, tea.Batch(refresh, func() tea.Msg {
+		id, err := normal.ActiveSession()
+		return activeAfterDialog{id, err}
+	})
 }
+
+// activeAfterDialog is the session the right side shows once a dialog has
+// closed, as Active says it: the cursor goes there.
+type activeAfterDialog Active
 
 // text is what the status line says once the dialog has closed.
 func (d dialogClosed) text() string { return saidText(d.said, d.err) }

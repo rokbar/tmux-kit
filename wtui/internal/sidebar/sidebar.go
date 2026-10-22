@@ -404,6 +404,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.afterAction()
 	case dialogClosed:
 		return m.withClosed(msg)
+	case activeAfterDialog:
+		m.seek = true
+		return m.update(Active(msg))
 	case hostDone:
 		m.status.action = errText(msg.err)
 	case cleared:

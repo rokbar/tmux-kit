@@ -266,6 +266,29 @@ func TestAfterADialogTheCursorIsOnWhatTheRightSideShows(t *testing.T) {
 	}
 }
 
+// What a dialog opens can be a new session (here, the picker's, docs). The
+// sidebar hears of it in any order: focus back, the tree built again with
+// docs in it, and what the right side shows, read once the dialog has
+// closed. Until that read comes, the right side's session is the one before,
+// as far as the sidebar knows: the cursor still ends on docs.
+func TestAfterADialogTheCursorIsOnTheSessionItOpened(t *testing.T) {
+	f := worktrees()
+	m := withDialogs(t, f)
+	m, cmd := update(t, m, press("n"))
+	closed := run(t, cmd)
+	f.normal.snap.Sessions = append(f.normal.snap.Sessions, session(7, "docs", "/p/api--docs", "shell"))
+	f.normal.active = "$7"
+	m, _ = update(t, m, tea.BlurMsg{})
+	m, reads := update(t, m, closed)
+	m, _ = update(t, m, tea.FocusMsg{})
+	m, build := update(t, m, tmux.SessionsChanged{})
+	m = drain(t, m, build)
+	m = drain(t, m, reads)
+	if got := cursor(t, m); got != "4   ▾ docs" {
+		t.Errorf("after the picker opened docs, the cursor is on %q, want docs; the view is:\n%s", got, plain(m))
+	}
+}
+
 // If the popup can't open, the status line says why, and focus still comes
 // back to the sidebar.
 func TestADialogThatCantOpenSaysWhy(t *testing.T) {
