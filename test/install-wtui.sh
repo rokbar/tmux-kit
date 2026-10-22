@@ -96,7 +96,8 @@ run_install || fail "plain install.sh failed: $(cat "$tmp/out")"
 [ ! -e "$tmp/curl.log" ] || fail "plain install.sh called curl: $(cat "$tmp/curl.log")"
 [ ! -e "$wtui" ] || fail "plain install.sh installed wtui"
 
-# inside tmux: the reload at the end must see the new wtui, so prefix w binds
+# inside tmux: the install ends by reloading the config, and with wtui
+# installed, prefix w is still tmux's (wtui is launched from a plain terminal)
 tmux -f /dev/null new-session -d 'cat >/dev/null'
 TMUX="$(tmux display -p '#{socket_path},#{pid},0')" run_install --wtui ||
   fail "install.sh --wtui failed: $(cat "$tmp/out")"
@@ -105,8 +106,10 @@ TMUX="$(tmux display -p '#{socket_path},#{pid},0')" run_install --wtui ||
   fail "installed $(installed), want v0.0.1 for $host"
 [ "$(cat "$tmp/curl.log")" = "$latest/$asset
 $latest/checksums.txt" ] || fail "install.sh --wtui downloaded: $(cat "$tmp/curl.log")"
-popup_bound w ||
-  fail "after install.sh --wtui in tmux, prefix w isn't bound to wtui"
+popup_bound W ||
+  fail "install.sh --wtui in tmux didn't reload the config"
+! popup_bound w ||
+  fail "after install.sh --wtui in tmux, prefix w opens a popup"
 tmux kill-server
 
 serve v0.0.2

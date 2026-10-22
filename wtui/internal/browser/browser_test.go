@@ -92,7 +92,7 @@ func TestOpensTheURLWithTheSystemsOpener(t *testing.T) {
 
 // The opener (and the browser it may start) is no part of wtui's terminal:
 // it can't read wtui's keys or draw on its screen, and it's in a session of
-// its own, so it isn't ended with the popup.
+// its own, so it isn't ended with wtui.
 func TestOpenerRunsDetachedFromTheTerminal(t *testing.T) {
 	if _, err := exec.LookPath("ps"); err != nil {
 		t.Skip("no ps on PATH to read the opener's process group with")

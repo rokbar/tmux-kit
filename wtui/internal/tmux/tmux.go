@@ -1,0 +1,455 @@
+// Package tmux is wtui's client for the normal tmux server, the one the
+// user's sessions are on: the only code that knows tmux's command line and
+// control mode for it. Each command runs with TMUX unset, so it reaches the
+// normal server even from a host's pane, where TMUX names the host; pinned,
+// it reaches it by its socket.
+package tmux
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// MinVersion is the oldest tmux wtui runs on: the first with the
+// no-detach-on-destroy client flag, which the nested client attaches with.
+// What else the host uses is older: popups on a given client and format
+// subscriptions (3.2), the window-resized hook (3.3).
+const MinVersion = "3.6"
+
+// FloatingVersion is the first tmux with floating panes, which the git UI
+// floats in; on an older one, it pops up.
+const FloatingVersion = "3.7"
+
+// DefaultKey is the wtui key while the normal server's @wtui-key option
+// isn't set.
+const DefaultKey = `C-\`
+
+// DefaultWidth is the sidebar's width in columns while the normal server's
+// @wtui-width option isn't set.
+const DefaultWidth = 30
+
+// DefaultProjectsRoot is the projects root while the normal server's
+// @wtui-projects-root option isn't set.
+const DefaultProjectsRoot = "~/Projects"
+
+// Client is wtui's client for the normal server.
+type Client struct {
+	// Socket is the normal server's socket, which every command reaches it
+	// by (tmux -S), once pinned (see Pin); while it's "", tmux looks for the
+	// server as it would.
+	Socket string
+	// Nested is the tty of the nested client, the one a host shows on its
+	// right side; empty outside a host.
+	Nested string
+}
+
+// Pin has c reach the normal server it reaches now by that server's socket
+// from now on, wherever TMUX_TMPDIR points: tmux looks for its server there,
+// and in /tmp while that folder isn't there. Once the socket has gone, c
+// finds no server, as with none running. It fails with no server running.
+func (c *Client) Pin() error {
+	socket, err := c.output("display-message", "-p", "#{socket_path}")
+	if err != nil {
+		return err
+	}
+	if socket == "" {
+		return errors.New("tmux didn't say where its socket is")
+	}
+	c.Socket = socket
+	return nil
+}
+
+// Snapshot is the normal server's sessions and their windows, and its
+// panes' agent states, as one moment saw them.
+type Snapshot struct {
+	Sessions []Session // by name
+	Agents   []Agent
+	// Unreported are the panes (ids) of the agents whose state can't arrive
+	// (see unreportedFormat).
+	Unreported []string
+}
+
+// Session is a session on the normal server.
+type Session struct {
+	ID, Name string
+	// Path is the session's start folder (session_path).
+	Path string
+	// Activity is when the session was last used (session_activity), to the
+	// second.
+	Activity time.Time
+	Windows  []Window // by index
+}
+
+// Window is a session's window.
+type Window struct {
+	ID    string
+	Index int
+	Name  string
+	// Active is whether it's its session's current window.
+	Active bool
+}
+
+// Version is the normal server's tmux version (e.g. "3.6a"), or, with no
+// server running, that of the tmux on PATH: the one that would start it.
+func (c *Client) Version() (string, error) {
+	if v, err := c.output("display-message", "-p", "#{version}"); err == nil && v != "" {
+		return v, nil
+	}
+	v, err := c.output("-V")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(v, "tmux "), nil
+}
+
+// tmuxVersion is how tmux names its versions: 3.5a, next-3.7 (a build
+// toward 3.7), 3.6-rc.
+var tmuxVersion = regexp.MustCompile(`^(?:next-)?(\d+)\.(\d+)([a-z]?)`)
+
+// Older says whether tmux version v is older than min, both named as tmux
+// names them. A version it can't read (master, openbsd-7.6) isn't: such
+// builds follow tmux's development.
+func Older(v, min string) bool {
+	a, ok := parseVersion(v)
+	b, okMin := parseVersion(min)
+	if !ok || !okMin {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
+
+// parseVersion is v as major, minor and patch numbers (a = 1, b = 2, ...).
+func parseVersion(v string) (n [3]int, ok bool) {
+	m := tmuxVersion.FindStringSubmatch(v)
+	if m == nil {
+		return n, false
+	}
+	n[0], _ = strconv.Atoi(m[1])
+	n[1], _ = strconv.Atoi(m[2])
+	if m[3] != "" {
+		n[2] = int(m[3][0]-'a') + 1
+	}
+	return n, true
+}
+
+// Key is the wtui key, as tmux names keys: the normal server's @wtui-key
+// option, or DefaultKey while it isn't set (or there's no server).
+func (c *Client) Key() string {
+	if key, err := c.output("show-options", "-gqv", "@wtui-key"); err == nil && key != "" {
+		return key
+	}
+	return DefaultKey
+}
+
+// Width is the sidebar's width in columns: the normal server's @wtui-width
+// option, or DefaultWidth while it isn't set to a number of columns (or
+// there's no server).
+func (c *Client) Width() int {
+	v, err := c.output("show-options", "-gqv", "@wtui-width")
+	if n, convErr := strconv.Atoi(v); err == nil && convErr == nil && n > 0 {
+		return n
+	}
+	return DefaultWidth
+}
+
+// ProjectsRoot is the projects root, whose folders wtui offers to open as
+// projects: the normal server's @wtui-projects-root option, or
+// DefaultProjectsRoot while it isn't set (or there's no server), with a
+// leading ~ standing for HOME.
+func (c *Client) ProjectsRoot() string {
+	root, err := c.output("show-options", "-gqv", "@wtui-projects-root")
+	if err != nil || root == "" {
+		root = DefaultProjectsRoot
+	}
+	rest, ok := strings.CutPrefix(root, "~")
+	home, err := os.UserHomeDir()
+	if !ok || err != nil || rest != "" && !strings.HasPrefix(rest, "/") {
+		return root // ~user isn't this user's home
+	}
+	return home + rest
+}
+
+// Editor is the editor's command line, as the normal server's global
+// TMUX_KIT_EDITOR has it (the one tmux-kit's prefix e runs), or "" while
+// that isn't set.
+func (c *Client) Editor() (string, error) {
+	// The whole environment, since asking for one variable that isn't set
+	// fails as any other failure would.
+	out, err := c.output("show-environment", "-g")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if editor, ok := strings.CutPrefix(line, "TMUX_KIT_EDITOR="); ok {
+			return editor, nil
+		}
+	}
+	return "", nil
+}
+
+// Snapshot is the normal server's sessions, windows and agent states now,
+// and the agents whose state can't arrive, from one tmux command. With no
+// session (or no server running), there are none.
+func (c *Client) Snapshot() (Snapshot, error) {
+	// Tab-separated, free text last: tmux escapes tabs in names, and output
+	// keeps them (and UTF-8) since output runs tmux with -u.
+	out, err := c.output(
+		"list-sessions", "-F", "S\t#{session_id}\t#{session_activity}\t#{session_name}\t#{session_path}", ";",
+		"list-windows", "-a", "-F", "W\t"+windowFormat, ";",
+		"display-message", "-p", "A\t"+agentFormat, ";",
+		"display-message", "-p", "U\t"+unreportedFormat)
+	if noSession(err) {
+		return Snapshot{}, nil
+	}
+	if err != nil {
+		return Snapshot{}, err
+	}
+	var snap Snapshot
+	at := map[string]int{} // a session's place in snap.Sessions, by id
+	for _, line := range strings.Split(out, "\n") {
+		kind, rest, _ := strings.Cut(line, "\t")
+		switch kind {
+		case "S":
+			f := strings.SplitN(rest, "\t", 4)
+			if len(f) < 4 {
+				continue
+			}
+			secs, _ := strconv.ParseInt(f[1], 10, 64)
+			at[f[0]] = len(snap.Sessions)
+			snap.Sessions = append(snap.Sessions, Session{
+				ID: f[0], Name: f[2], Path: f[3], Activity: time.Unix(secs, 0),
+			})
+		case "W":
+			session, w, ok := parseWindow(rest)
+			if i, known := at[session]; ok && known {
+				snap.Sessions[i].Windows = append(snap.Sessions[i].Windows, w)
+			}
+		case "A":
+			snap.Agents = parseAgents(rest)
+		case "U":
+			snap.Unreported = parseUnreported(rest)
+		}
+	}
+	return snap, nil
+}
+
+// windowFormat is a window as list-windows -a lists it for parseWindow:
+// tab-separated, its name last.
+const windowFormat = "#{session_id}\t#{window_id}\t#{window_index}\t#{window_active}\t#{window_name}"
+
+// parseWindow is a line of windowFormat: the window, and its session's id.
+func parseWindow(line string) (session string, w Window, ok bool) {
+	f := strings.SplitN(line, "\t", 5)
+	if len(f) < 5 {
+		return "", Window{}, false
+	}
+	index, _ := strconv.Atoi(f[2])
+	return f[0], Window{ID: f[1], Index: index, Name: f[4], Active: f[3] == "1"}, true
+}
+
+// ActiveSession is the id of the session the nested client shows, or ""
+// while it shows none (or there's no session, or no server).
+func (c *Client) ActiveSession() (string, error) {
+	out, err := c.output("list-clients", "-F", "#{client_tty} #{session_id}")
+	if noSession(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if id, ok := strings.CutPrefix(line, c.Nested+" "); ok && c.Nested != "" {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+// Show shows session (an id) on the nested client, at its window window (an
+// id) unless that's "".
+func (c *Client) Show(session, window string) error {
+	if c.Nested == "" {
+		return errors.New("no nested client to show a session on")
+	}
+	target := session
+	if window != "" {
+		target += ":" + window
+	}
+	_, err := c.output("switch-client", "-c", c.Nested, "-t", target)
+	return err
+}
+
+// ErrNoOtherSession is ShowLast's failure when the session the nested client
+// shows is the only one.
+var ErrNoOtherSession = errors.New("no other session")
+
+// ShowLast shows on the nested client the session it showed before the one
+// it shows, as tmux keeps it (prefix L's), and returns its id; so showing
+// the last session again comes back. If it has none, or that one is gone, it
+// shows the session with the most recent activity other than the one it
+// shows.
+func (c *Client) ShowLast() (string, error) {
+	if c.Nested == "" {
+		return "", errors.New("no nested client to show a session on")
+	}
+	if _, err := c.output("switch-client", "-c", c.Nested, "-l"); err == nil {
+		return c.ActiveSession()
+	}
+	active, err := c.ActiveSession()
+	if err != nil {
+		return "", err
+	}
+	snap, err := c.Snapshot()
+	if err != nil {
+		return "", err
+	}
+	last := Latest(slices.DeleteFunc(snap.Sessions, func(s Session) bool { return s.ID == active }))
+	if last == nil {
+		return "", ErrNoOtherSession
+	}
+	return last.ID, c.Show(last.ID, "")
+}
+
+// Latest is the session of sessions with the most recent activity, or nil if
+// there's none. Of sessions used in the same second (all tmux says), it's
+// the first.
+func Latest(sessions []Session) *Session {
+	var best *Session
+	for i, s := range sessions {
+		if best == nil || s.Activity.After(best.Activity) {
+			best = &sessions[i]
+		}
+	}
+	return best
+}
+
+// Float runs command (words, run without a shell) in folder dir, in a
+// floating pane over the window the nested client shows, with focus in it,
+// and returns once it has started. The pane covers the window but for its
+// border, one cell in from each edge; it closes once command exits. It stays
+// with the window, at that size, whichever session the nested client goes
+// on to show. Floating panes are new in FloatingVersion.
+func (c *Client) Float(dir string, command []string) error {
+	if c.Nested == "" {
+		return errors.New("no nested client to float a pane over")
+	}
+	out, err := c.output("display-message", "-c", c.Nested, "-p", "#{version}\t#{window_id}\t#{window_width}\t#{window_height}")
+	if err != nil {
+		return err
+	}
+	f := strings.Split(out, "\t")
+	if len(f) != 4 {
+		return fmt.Errorf("tmux said %q of the nested client's window", out)
+	}
+	w, _ := strconv.Atoi(f[2])
+	h, _ := strconv.Atoi(f[3])
+	// tmux 3.7 places and sizes the content, its border drawn around it;
+	// from 3.8, the border too.
+	x, y := 1, 1
+	if Older(f[0], "3.8") {
+		w, h = w-2, h-2
+	} else {
+		x, y = 0, 0
+	}
+	args := []string{"new-pane", "-t", f[1], "-c", dir,
+		"-X", strconv.Itoa(x), "-Y", strconv.Itoa(y), "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "--"}
+	_, err = c.output(append(args, command...)...)
+	return err
+}
+
+// Attach runs the nested client on this process's terminal: a tmux client
+// attached to session (an id or =<name>, or "" to have tmux choose), and
+// returns once it exits, with what it said as it did. detached is whether
+// the user detached it (prefix d), rather than its running out of sessions
+// or failing.
+//
+// It attaches with the no-detach-on-destroy flag, so when its session ends,
+// tmux moves it to the session with the most recent activity, whatever the
+// user's detach-on-destroy says; and with the sync feature, so its terminal
+// (the host's pane) gets synchronized updates.
+func (c *Client) Attach(session string) (detached bool, said string) {
+	args := []string{"-T", "sync", "attach-session", "-f", "no-detach-on-destroy"}
+	if session != "" {
+		args = append(args, "-t", session)
+	}
+	cmd := c.command(args...)
+	// The client draws on its terminal, stdin; only its exit message goes to
+	// stdout.
+	var out bytes.Buffer
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, &out, &out
+	cmd.Run() // its exit status says no more than its message
+	said = strings.TrimSpace(out.String())
+	return strings.HasPrefix(said, "[detached"), said
+}
+
+// output is what tmux printed for args, trimmed. When tmux fails, the error
+// is what it said on stderr. tmux runs with -u, so its output keeps tabs
+// and UTF-8 as they are: without a UTF-8 locale, it turns them into _.
+func (c *Client) output(args ...string) (string, error) {
+	cmd := c.command(append([]string{"-u"}, args...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if msg := strings.TrimSpace(stderr.String()); err != nil && msg != "" {
+		err = errors.New(msg)
+	}
+	return strings.TrimSpace(string(out)), err
+}
+
+// noSession says whether err is a query of Snapshot's or ActiveSession's
+// finding no session on the server. That's no server to talk to (no socket,
+// or one a server has left behind), a server on its way out, which closes
+// each connection it's given, or a server with no session (once its last has
+// ended, until it exits), on which list-windows -a and list-clients look for
+// a current session and find no current target.
+func noSession(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.HasPrefix(msg, "no server running on ") ||
+		strings.HasPrefix(msg, "error connecting to ") && strings.HasSuffix(msg, "(No such file or directory)") ||
+		msg == "server exited unexpectedly" ||
+		msg == "no current target"
+}
+
+func (c *Client) command(args ...string) *exec.Cmd {
+	if c.Socket != "" {
+		args = append([]string{"-S", c.Socket}, args...)
+	}
+	cmd := exec.Command("tmux", args...)
+	cmd.Env = WithoutTmux(os.Environ())
+	return cmd
+}
+
+// InServer is the value of TMUX that ties a program to the server at
+// socket, as if it ran in one of that server's panes: tmux, run without -L
+// or -S, reaches that server, wherever TMUX_TMPDIR points. tmux reads only
+// the socket from TMUX; the pane is TMUX_PANE's to name, and a program given
+// this names none.
+func InServer(socket string) string { return socket + ",0,0" }
+
+// WithoutTmux is env without TMUX and TMUX_PANE, the variables that tie a
+// program to the tmux server it runs in.
+func WithoutTmux(env []string) []string {
+	var out []string
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "TMUX=") && !strings.HasPrefix(kv, "TMUX_PANE=") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
