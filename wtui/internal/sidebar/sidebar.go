@@ -154,8 +154,11 @@ type Model struct {
 	// focus moves.
 	focused bool
 	// seek is whether the cursor goes to the active session as soon as the
-	// tree has it: at launch, and on getting focus.
+	// tree has it: at launch, and once focus has settled.
 	seek bool
+	// settling is whether the sidebar has just got focus, and the cursor
+	// goes to the active session once focus has settled (see focusWait).
+	settling bool
 
 	width, height int
 	top           int // the first row the view shows
@@ -317,14 +320,16 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.FocusMsg:
-		m.focused, m.seek = true, true
-		return m.toActive(), nil
+		m.focused, m.settling = true, true
+		return m, m.after(focusWait, settled{})
+	case settled:
+		return m.settle(), nil
 	case tea.BlurMsg:
 		m.focused = false
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			m.seek, m.status.hint = false, ""
-			return m.clickOn(msg.Y), nil
+			m.status.hint = ""
+			return m.clickOn(msg.Y)
 		}
 	case tea.KeyPressMsg:
 		return m.press(msg.String())
@@ -465,15 +470,42 @@ func (m Model) inSight() Model {
 	return m
 }
 
-// clickOn is the sidebar with the cursor on the row the view shows on line
-// y, if any.
-func (m Model) clickOn(y int) Model {
+// clickOn is the sidebar once the row the view shows on line y, if any, is
+// clicked: the cursor goes there, and the click does what enter does. A
+// click off the rows does nothing.
+func (m Model) clickOn(y int) (Model, tea.Cmd) {
 	rows, room := m.rows(), m.room()
 	i := m.top + y - 1 // rows start under the header
-	if y >= 1 && (room < 0 || y <= room) && i < len(rows) {
-		m.cursor = rows[i].ID
+	if y < 1 || (room >= 0 && y > room) || i >= len(rows) {
+		return m, nil
 	}
-	return m
+	m.seek, m.settling = false, false // the cursor is the user's now
+	m.cursor = rows[i].ID
+	return m.enter()
+}
+
+// focusWait is how long focus takes to settle once the sidebar gets it:
+// then the cursor goes to the active session (see settle). A click that
+// gives the sidebar focus comes just after the focus (the host's click
+// selects the pane, then passes the click on), and going there at once would
+// shift the rows under the click (unfolding the active session's project,
+// scrolling to it), so it would land on another row than the one clicked. A
+// click during the wait acts on the rows as they showed, and the cursor
+// stays where it put it; a key settles focus at once, so it acts with the
+// cursor on the active session, as after the wtui key.
+const focusWait = 50 * time.Millisecond
+
+// settled is focus settled, focusWait after the sidebar got it.
+type settled struct{}
+
+// settle is the sidebar once focus has settled, if it was settling: the
+// cursor goes to the active session as soon as the tree has it.
+func (m Model) settle() Model {
+	if !m.settling {
+		return m
+	}
+	m.settling, m.seek = false, true
+	return m.toActive()
 }
 
 // scrolled is the sidebar scrolled as little as keeps the cursor's row in

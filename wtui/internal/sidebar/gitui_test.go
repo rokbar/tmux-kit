@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 // Version is the fake's tmux version.
@@ -183,7 +181,7 @@ func TestGRunsTheGitUIInTheRowsWorktree(t *testing.T) {
 	}
 	// a window of a session in a non-git project: its session's name
 	m, _ = update(t, m, Active{Session: "$3"})
-	m, _ = update(t, m, tea.FocusMsg{}) // the cursor on notes
+	m = gotFocus(t, m) // the cursor on notes
 	m = keys(t, m, press("j"))
 	if got := cursor(t, m); got != "        0 vim" {
 		t.Fatalf("with notes active, the cursor is on %q, want its window", got)
@@ -199,7 +197,7 @@ func TestAGitUIThatFailsShowsInTheStatusLine(t *testing.T) {
 	f := gitUI("3.8")
 	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: wtless{f.wt}}, `C-\`)
 	m = feed(t, m, m.Init())
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	m, cmd := update(t, m, press("g"))
 	m, _ = update(t, m, run(t, cmd))
 	if got := plain(m); !strings.HasSuffix(got, "\nwt not found on PATH") {

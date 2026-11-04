@@ -2,8 +2,9 @@
 # The host, end to end: wtui launched in a plain terminal (a fake one) opens a
 # host over the normal server (the sandbox's), with the sidebar on the left
 # and, on the right, a tmux client on the session with the most recent
-# activity. Keys and the mouse switch sides, the nesting doesn't show, and q
-# closes wtui, leaving the normal server as it was.
+# activity. Keys and the mouse switch sides, a click on a row shows its
+# session, the nesting doesn't show, and q closes wtui, leaving the normal
+# server as it was.
 set -euo pipefail
 # shellcheck source=test/lib/host.sh
 . "$(dirname "$0")/lib/host.sh"
@@ -78,14 +79,36 @@ wait_until "C-b c from the sidebar to make a window in beta" eval '[ "$(windows 
 # 3.7 takes a click within double-click-time (300 ms) of the last for a
 # second click (SecondClick1Pane), even on another pane, and the next for a
 # third (TripleClick1Pane). Here the right side has focus, and the mouse
-# hasn't been clicked yet: a click there, then at once one on the sidebar,
-# are a click and a second click. Dragging the border (column 31) resizes
-# the sidebar.
+# hasn't been clicked yet: a click there, then at once one on the sidebar's
+# header, are a click and a second click.
 click t1 80 10
-click t1 5 10
-wait_until "a quick second click, on the sidebar, to focus it" focus_on t1 sidebar
+click t1 5 1
+wait_until "a quick second click, on the sidebar's header, to focus it" focus_on t1 sidebar
 click t1 80 10
 wait_until "a click on the right side to focus it" focus_on t1 right
+
+# A click on a row does what enter does there. From the right side, it acts
+# on the rows as they showed, though focusing the sidebar puts its cursor on
+# the active session, unfolding its project if folded by hand: here beta's,
+# folded with the wtui key, h (beta's windows), h (to its project), h. A
+# click on gamma's row shows gamma, and focus stays on the right. A click on
+# a project's row unfolds it, and focus stays on the sidebar, which the click
+# focused; then a click on beta's row shows beta, and focus goes right.
+row() { [ "$(sidebar_text t1 | sed -n "$1p")" = "$2" ]; }
+type_in t1 'C-\' h h h Escape
+wait_until "beta's project to fold, focus going right" eval 'row 4 "  ▸ beta" && focus_on t1 right'
+row 6 "3   ▸ gamma" || fail "the sidebar's row 6 isn't gamma's session:
+$(sidebar_text t1)"
+click t1 5 6
+wait_until "a click on gamma's row to show gamma, focus staying right" eval '[ "$(showing t1)" = gamma ] && focus_on t1 right'
+row 4 "  ▸ beta" || fail "after gamma was shown, beta's project unfolded:
+$(sidebar_text t1)"
+click t1 5 4
+wait_until "a click on beta's project to unfold it, focus on the sidebar" eval 'row 5 "2   ▸ beta" && focus_on t1 sidebar'
+click t1 5 5
+wait_until "a click on beta's row to show beta, focus going right" eval '[ "$(showing t1)" = beta ] && focus_on t1 right'
+
+# Dragging the border (column 31) resizes the sidebar.
 drag t1 31 10 25 10
 wait_until "dragging the border to make the sidebar 24 columns wide" eval '[ "$(sidebar_width t1)" = 24 ]'
 

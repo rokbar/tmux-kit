@@ -32,7 +32,7 @@ func withOpeners(t *testing.T, f fakes) (Model, openers) {
 	o := openers{&fakeOpener{}, &fakeOpener{}}
 	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt, Editor: o.editor, Browser: o.browser}, `C-\`)
 	m = feed(t, m, m.Init())
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	return m, o
 }
 
@@ -126,7 +126,7 @@ func TestEOpensTheEditorOnTheRowsFolder(t *testing.T) {
 	// project: their session's folder
 	for _, c := range []struct{ active, want string }{{"$1", "/p/api"}, {"$3", "/home/u/notes"}} {
 		m, _ = update(t, m, Active{Session: c.active})
-		m, _ = update(t, m, tea.FocusMsg{}) // the cursor on it
+		m = gotFocus(t, m) // the cursor on it
 		m = keys(t, m, press("j"))
 		if got := strings.TrimSpace(cursor(t, m)); got != "0 shell" && got != "0 vim" {
 			t.Fatalf("with %s active, the cursor is on %q, want its first window", c.active, got)

@@ -170,7 +170,7 @@ func TestATickStartsNoRefreshWhileTheLastOneRuns(t *testing.T) {
 func TestMarkersRefreshAfterAnAction(t *testing.T) {
 	f := worktrees()
 	m, _ := ticking(t, f)
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	m = keys(t, m, press("k"))               // Bugfix
 	f.wt.lists["/p/api"][2].State = wt.Dirty // docs
 	f.wt.listed = nil
@@ -218,7 +218,7 @@ func TestARefreshFollowsTheOneRunningWhenAnActionFinishes(t *testing.T) {
 	f := worktrees()
 	f.wt.openErr = errors.New("wt: setup failed")
 	m, c := ticking(t, f)
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	m, cmd := update(t, m, c.tick(t))
 	var running []tea.Msg // listed before the action, not yet taken in
 	for _, r := range split(t, cmd) {

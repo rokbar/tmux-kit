@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
@@ -25,7 +23,7 @@ func withRoot(t *testing.T, f fakes) Model {
 	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt, Wtui: wtui, Socket: socket,
 		ProjectsRoot: "/home/u/Projects"}, `C-\`)
 	m = feed(t, m, m.Init())
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	return m
 }
 

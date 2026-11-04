@@ -147,8 +147,9 @@ func Shortcuts(key string) []string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, wrap("In a session, tmux's keys work as ever: C-b d closes wtui.", shortcutsWidth)...)
-	return append(lines, wrap("Mouse: click a side to focus it, or a row to move the cursor there; "+
-		"drag the border to resize the sidebar.", shortcutsWidth)...)
+	return append(lines, wrap("Mouse: click a row to do what enter does there; click the sidebar's "+
+		"header, footer or empty space to focus it, or the right side to focus that; drag the "+
+		"border to resize the sidebar.", shortcutsWidth)...)
 }
 
 // keyLines are label's lines in the shortcuts: label, then help, wrapped

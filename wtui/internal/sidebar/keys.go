@@ -73,8 +73,11 @@ var keyed = func() map[string]action {
 }()
 
 // press is the sidebar once key (as Bubble Tea names it) is pressed, and
-// what the key does. Any key clears the last key's hint.
+// what the key does. Any key clears the last key's hint. A key pressed as
+// the sidebar gets focus settles focus first, so that it acts on the active
+// session (e.g. after the wtui key, in a session).
 func (m Model) press(key string) (Model, tea.Cmd) {
+	m = m.settle()
 	m.seek = false // the cursor is the user's now
 	m.status.hint = ""
 	a, ok := keyed[key]

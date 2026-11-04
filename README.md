@@ -234,8 +234,9 @@ unchanged.
 
 `n`, `i`, `x`, `d` and `p` open popups over the right side, which take every
 key until they close (so the wtui key can't leave them); focus then goes back
-to the sidebar. Mouse: click a side to focus it, or a row to move the cursor
-there; drag the border to resize the sidebar.
+to the sidebar. Mouse: click a row to do what `enter` does there; click the
+sidebar's header, footer or empty space to focus it, or the right side to
+focus that; drag the border to resize the sidebar.
 
 ### Settings
 

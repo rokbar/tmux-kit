@@ -2,10 +2,11 @@
 # Dialogs, end to end. i shows the row's details, and n runs the picker, in a
 # popup on the nested client: over the right side, with focus there until it
 # closes, then back on the sidebar. Clicking the sidebar works while one is
-# open. Whatever the picker opens shows on the right, and only there: another
-# client of the normal server stays where it was. The picker's failure ends
-# up in the status line. ? shows every shortcut over the whole host until any
-# key; the sidebar's last line says so.
+# open: a click on a row shows its session under the popup. Whatever the
+# picker opens shows on the right, and only there: another client of the
+# normal server stays where it was. The picker's failure ends up in the status
+# line. ? shows every shortcut over the whole host until any key; the
+# sidebar's last line says so.
 set -euo pipefail
 # shellcheck source=test/lib/host.sh
 . "$(dirname "$0")/lib/host.sh"
@@ -65,15 +66,19 @@ $(screen t1)"
 shows "not pushed" || fail "the details don't say fix isn't pushed:
 $(screen t1)"
 focus_on t1 right || fail "with the details open, focus is on the $(focus t1)"
-# a click on the sidebar's row for api works meanwhile; esc goes back right
+# a click on the sidebar's row for api works meanwhile, as enter does: api
+# shows on the right, under the details, which stay open, with focus
 click t1 5 3
-wait_until "a click to move the cursor to api" eval '[ "$(cursor_row t1)" = "1   ▸ api" ] && focus_on t1 sidebar'
+wait_until "a click on api's row to show api, under the details" eval '[ "$(showing t1)" = api ] && focus_on t1 right'
 shows "fix the login form" || fail "the click closed the details"
-type_in t1 Escape
-wait_until "esc to focus the right side, under the details" focus_on t1 right
 type_in t1 q
 wait_until "q to close the details, focus back on the sidebar" eval 'gone "fix the login form" && focus_on t1 sidebar'
-[ "$(showing t1)" = fix ] || fail "after the details, the right side shows '$(showing t1)', want fix"
+[ "$(showing t1)" = api ] || fail "after the details, the right side shows '$(showing t1)', want api"
+# fix again for what follows: 2 shows it, and the wtui key comes back, on fix
+type_in t1 2
+wait_until "2 to show fix" eval '[ "$(showing t1)" = fix ] && focus_on t1 right'
+type_in t1 'C-\'
+wait_until "the wtui key to focus the sidebar, on fix" eval 'focus_on t1 sidebar && [ "$(cursor_row t1)" = "2   ▾ fix" ]'
 
 # ?: every shortcut, over the whole host; any key closes it
 type_in t1 '?'

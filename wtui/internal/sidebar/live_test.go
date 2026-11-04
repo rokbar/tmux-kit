@@ -108,7 +108,7 @@ func TestTheActiveSessionFollowsTheRightSide(t *testing.T) {
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("with notes active, the rows' styles are %q, want %q", got, want)
 	}
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	if got := cursor(t, m); got != "4   ▾ notes" {
 		t.Errorf("on getting focus, the cursor is on %q, want notes, the active session", got)
 	}

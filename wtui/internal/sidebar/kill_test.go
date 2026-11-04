@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/rokbar/tmux-kit/wtui/internal/host"
 	"github.com/rokbar/tmux-kit/wtui/internal/tmux"
 )
@@ -22,7 +20,7 @@ func withKill(t *testing.T, f fakes) Model {
 	t.Helper()
 	m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt, Wtui: wtui, Socket: socket}, `C-\`)
 	m = feed(t, m, m.Init())
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	return m
 }
 

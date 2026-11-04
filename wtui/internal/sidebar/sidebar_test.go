@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -365,7 +366,8 @@ func TestAFailedReadOfTheActiveSessionShowsOnce(t *testing.T) {
 // The cursor shows only while the sidebar has focus, and the header shows
 // which: in reverse video with focus, dim without. The sidebar starts with
 // focus (the host gives it focus, and tmux doesn't say so). Getting focus
-// puts the cursor on the active session.
+// puts the cursor on the active session, once focus has settled (see
+// TestTheCursorGoesToTheActiveSessionOnceFocusSettles).
 func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 	m := started(t, fixture())
 	if got := cursor(t, m); got != "3   ▾ fix-login" || !hasParam(sgr(header(m)), "7") {
@@ -378,7 +380,7 @@ func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 	if params := sgr(header(m)); !hasParam(params, "2") || hasParam(params, "7") {
 		t.Errorf("without focus, the header is %q, want it dim", header(m))
 	}
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	if got := cursor(t, m); got != "3   ▾ fix-login" {
 		t.Errorf("with focus, the cursor is on %q, want the active session, fix-login", got)
 	}
@@ -391,12 +393,25 @@ func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 	}
 }
 
+// gotFocus is the sidebar once it has got focus, and focus has settled (the
+// wait it asks for is over), so its cursor is on the active session. The
+// wait is on a clock of its own, so a test's clock (see ticking) has only
+// the refresh's ticks.
+func gotFocus(t *testing.T, m Model) Model {
+	t.Helper()
+	c, after := &clock{}, m.after
+	m.after = c.after
+	m, _ = update(t, m, tea.FocusMsg{})
+	m.after = after
+	m, _ = update(t, m, c.tick(t))
+	return m
+}
+
 // focused is the sidebar once it has started and got focus, so its cursor is
 // on the active session.
 func focused(t *testing.T, f fakes) Model {
 	t.Helper()
-	m, _ := update(t, started(t, f), tea.FocusMsg{})
-	return m
+	return gotFocus(t, started(t, f))
 }
 
 // keys presses each key in turn and returns the sidebar after the last,
@@ -760,7 +775,7 @@ func TestTheCursorLandsOnTheActiveSessionAtLaunch(t *testing.T) {
 func TestGettingFocusAgainPutsTheCursorBack(t *testing.T) {
 	m := keys(t, focused(t, fixture()), press("k"), press("k"), press("k"), press("h")) // api folded
 	m, _ = update(t, m, tea.BlurMsg{})
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	if got := cursor(t, m); got != "3   ▾ fix-login" {
 		t.Errorf("after focus came back, the cursor is on %q, want fix-login", got)
 	}
@@ -774,7 +789,7 @@ func TestTheCursorWaitsForANewActiveSessionUnlessMoved(t *testing.T) {
 		f := fixture()
 		m := started(t, f)
 		m, _ = update(t, m, Active{Session: "$7"})
-		m, _ = update(t, m, tea.FocusMsg{})
+		m = gotFocus(t, m)
 		if moved {
 			m = keys(t, m, press("j"))
 		}
@@ -793,30 +808,163 @@ func TestTheCursorWaitsForANewActiveSessionUnlessMoved(t *testing.T) {
 // click is a left click on the sidebar's line y (0 is the header).
 func click(y int) tea.MouseClickMsg { return tea.MouseClickMsg{X: 5, Y: y, Button: tea.MouseLeft} }
 
-// Clicking a row moves the cursor there, and does nothing else. The
-// sidebar asks for mouse events, and clicks off the rows do nothing.
-func TestClickingARowMovesTheCursorThere(t *testing.T) {
-	f := fixture()
-	m := focused(t, f)
-	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+// A click on a row puts the cursor there and does what enter does: on a
+// session (a worktree's one session too) it shows it on the right, and on a
+// window its session at that window; on a worktree without a session it has
+// wt open one first; then focus goes right. On a project, or a worktree with
+// several sessions, it folds or unfolds it, and focus stays; on a missing
+// worktree it shows a hint. The sidebar asks for mouse events.
+func TestAClickOnARowChoosesIt(t *testing.T) {
+	if got := started(t, fixture()).View().MouseMode; got != tea.MouseModeCellMotion {
 		t.Errorf("the sidebar's mouse mode is %v, want clicks", got)
 	}
-	m, cmd := update(t, m, click(7))
-	if got := cursor(t, m); got != "  ▾ notes" || cmd != nil {
-		t.Errorf("after a click on line 7, the cursor is on %q (and the click did %v), want notes", got, cmd)
-	}
-	for _, y := range []int{0, 11, 40} {
-		m, _ = update(t, m, click(y))
-		if got := cursor(t, m); got != "  ▾ notes" {
-			t.Errorf("after a click on line %d, off the rows, the cursor is on %q", y, got)
+	right := []string{"focus right"}
+	for _, c := range []struct {
+		y                    int
+		row                  string // the cursor's, once clicked
+		shown, opened, asked []string
+		view                 string // what the view has then, if not ""
+	}{
+		{y: 4, row: "2     ▸ Bugfix", shown: []string{"$5"}, asked: right},
+		{y: 5, row: "3   ▾ login", shown: []string{"$2"}, asked: right},
+		{y: 7, row: "        1 dev", shown: []string{"$2:@21"}, asked: right},
+		{y: 8, row: "      docs", opened: []string{"/p/api /p/api--docs"}, shown: []string{"$91"}, asked: right},
+		{y: 10, row: "      api--gone ✗", view: "\napi--gone is missing"},
+		{y: 1, row: "  ▸ api", view: "\n  ▸ api\n  ▾ notes\n"},
+		{y: 2, row: "    ▸ main", view: "\n    ▸ main\n3   ▾ login\n"},
+	} {
+		f := worktrees()
+		m, cmd := update(t, focused(t, f), click(c.y))
+		if got := cursor(t, m); got != c.row {
+			t.Errorf("after a click on line %d, the cursor is on %q, want %q", c.y, got, c.row)
+		}
+		if cmd != nil {
+			m = feed(t, m, cmd)
+		}
+		if !slices.Equal(f.normal.shown, c.shown) || !slices.Equal(f.wt.opened, c.opened) || !slices.Equal(f.host.asked, c.asked) {
+			t.Errorf("a click on %q showed %q, opened %q and asked the host %q, want %q, %q and %q",
+				c.row, f.normal.shown, f.wt.opened, f.host.asked, c.shown, c.opened, c.asked)
+		}
+		if !strings.Contains(plain(m), c.view) {
+			t.Errorf("after a click on %q, the view is:\n%s\nwant it to have:\n%s", c.row, plain(m), c.view)
 		}
 	}
-	m, _ = update(t, m, tea.MouseClickMsg{X: 5, Y: 2, Button: tea.MouseRight})
-	if got := cursor(t, m); got != "  ▾ notes" {
-		t.Errorf("after a right click, the cursor is on %q", got)
+}
+
+// A click that gives the sidebar focus comes just after the focus: it acts
+// on the rows as they showed. Focus alone has the cursor go to the active
+// session (fix-login) once it settles, unfolding its project if it was
+// folded by hand, or scrolling to it, which would shift the rows under the
+// click; after a click, the cursor stays on the row clicked.
+func TestAClickThatGivesFocusActsOnTheRowsAsTheyShowed(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		away func(Model) Model // what was done in the sidebar before focus went right
+		view string            // the view then, notes's session on line 3
+	}{
+		{"api folded by hand", func(m Model) Model {
+			return keys(t, m, press("k"), press("k"), press("k"), press("h"))
+		}, " wtui\n  ▸ api\n  ▾ notes\n4   ▸ notes\n  ▾ Zed\n5   ▸ zed"},
+		{"fix-login scrolled out of sight", func(m Model) Model {
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 7})
+			return keys(t, m, press("j"), press("j"), press("j"), press("j"), press("j"), press("j")) // zed
+		}, " wtui\n        1 dev\n  ▾ notes\n4   ▸ notes\n  ▾ Zed\n5   ▸ zed\n? shortcuts"},
+	} {
+		f := fixture()
+		m, ticks := ticking(t, f)
+		m = c.away(m)
+		m, _ = update(t, m, tea.BlurMsg{})
+		if got := plain(m); got != c.view {
+			t.Fatalf("%s: view:\n%s\nwant:\n%s", c.name, got, c.view)
+		}
+		m, _ = update(t, m, tea.FocusMsg{})
+		m, cmd := update(t, m, click(3))
+		m, _ = update(t, m, ticks.tick(t)) // focus settles
+		if got := cursor(t, m); got != "4   ▸ notes" {
+			t.Errorf("%s: after a click on notes's session that gave the sidebar focus, the cursor is on %q, want it there",
+				c.name, got)
+		}
+		run(t, cmd)
+		if want := []string{"$3"}; !slices.Equal(f.normal.shown, want) {
+			t.Errorf("%s: a click on notes's session that gave the sidebar focus showed %q, want %q", c.name, f.normal.shown, want)
+		}
 	}
-	if len(f.normal.shown) > 0 {
-		t.Errorf("clicking showed %q", f.normal.shown)
+}
+
+// Focus settles a moment (too short to notice) after the sidebar gets it,
+// and then the cursor goes to the active session, unfolding its project,
+// folded by hand, and scrolling to it. A click off the rows meanwhile (on
+// the header, which focuses the sidebar) doesn't stop it. A key meanwhile
+// settles focus at once, so it acts with the cursor on the active session,
+// as after the wtui key in a session.
+func TestTheCursorGoesToTheActiveSessionOnceFocusSettles(t *testing.T) {
+	f := fixture()
+	m, c := ticking(t, f)
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 5})
+	away := []tea.KeyPressMsg{press("k"), press("k"), press("k"), press("h"), press("j"), press("j"), press("j"), press("j")}
+	m = keys(t, m, away...) // api folded by hand, the cursor on zed
+	m, _ = update(t, m, tea.BlurMsg{})
+	before := " wtui\n4   ▸ notes\n  ▾ Zed\n5   ▸ zed\n? shortcuts"
+	if got := plain(m); got != before {
+		t.Fatalf("view:\n%s\nwant:\n%s", got, before)
+	}
+	m, _ = update(t, m, tea.FocusMsg{})
+	if wait := c.waits[len(c.waits)-1]; wait > 100*time.Millisecond {
+		t.Errorf("focus settles %v after the sidebar gets it, want a moment too short to notice", wait)
+	}
+	m, _ = update(t, m, click(0))
+	if got := plain(m); got != before {
+		t.Errorf("before focus settles, the view is:\n%s\nwant it as it was:\n%s", got, before)
+	}
+	m, _ = update(t, m, c.tick(t))
+	if got, want := plain(m), " wtui\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\n? shortcuts"; got != want || cursor(t, m) != "3   ▾ fix-login" {
+		t.Errorf("once focus has settled, the cursor is on %q and the view is:\n%s\nwant the cursor on fix-login, and:\n%s",
+			cursor(t, m), got, want)
+	}
+
+	m = keys(t, m, away...) // from fix-login again
+	m, _ = update(t, m, tea.BlurMsg{})
+	if got := plain(m); got != before {
+		t.Fatalf("view:\n%s\nwant:\n%s", got, before)
+	}
+	m, _ = update(t, m, tea.FocusMsg{})
+	m = keys(t, m, press("j"))
+	if got := cursor(t, m); got != "        0 shell" {
+		t.Errorf("after j, as the sidebar got focus, the cursor is on %q, want a row down from fix-login", got)
+	}
+	m, _ = update(t, m, c.tick(t))
+	if got := cursor(t, m); got != "        0 shell" {
+		t.Errorf("once focus has settled, after j, the cursor is on %q, want it where j put it", got)
+	}
+}
+
+// A click off the rows (on the header, empty space, the status line or the
+// footer) changes nothing but the hint, which it clears as a key does. A
+// right or middle click changes nothing, even on a row.
+func TestAClickOffTheRowsOrWithAnotherButtonChangesNothing(t *testing.T) {
+	f := worktrees()
+	m, _ := update(t, focused(t, f), tea.WindowSizeMsg{Width: 30, Height: 20})
+	m, _ = update(t, m, click(10)) // api--gone: a hint, on line 18
+	before := plain(m)
+	if !strings.Contains(before, "\napi--gone is missing\n") {
+		t.Fatalf("after a click on api--gone, the view is:\n%s\nwant a hint", before)
+	}
+	for _, b := range []tea.MouseButton{tea.MouseRight, tea.MouseMiddle} {
+		if m, cmd := update(t, m, tea.MouseClickMsg{X: 5, Y: 4, Button: b}); cmd != nil || plain(m) != before {
+			t.Errorf("a %v click on Bugfix did %v, and the view went from:\n%s\nto:\n%s", b, cmd, before, plain(m))
+		}
+	}
+	for _, y := range []int{0, 17, 18, 19, 40} {
+		var cmd tea.Cmd
+		if m, cmd = update(t, m, click(y)); cmd != nil || plain(m) != strings.Replace(before, "api--gone is missing", "", 1) {
+			t.Errorf("a click on line %d, off the rows, did %v, and the view went from:\n%s\nto:\n%s", y, cmd, before, plain(m))
+		}
+	}
+	if got := cursor(t, m); got != "      api--gone ✗" {
+		t.Errorf("after clicks off the rows, the cursor is on %q, want api--gone", got)
+	}
+	if len(f.normal.shown) > 0 || len(f.host.asked) > 0 {
+		t.Errorf("clicks off the rows showed %q and asked the host %q", f.normal.shown, f.host.asked)
 	}
 }
 
