@@ -86,14 +86,27 @@ status=0
 [ "$status" = 1 ] || fail "wt rm exited $status when git failed, want 1: $(cat "$tmp/log")"
 [ -d "$tmp/demo--broken" ] || fail "wt rm removed $tmp/demo--broken after git failed"
 
-# wt close (prefix X) passes wt rm's failure through as before, a safety
-# refusal included: wt rm's message, a pause for a key, then exit 1
+# wt close (prefix X) shows a safety refusal and offers to force: no keeps the
+# worktree and exits 1, yes runs wt rm -f
 git worktree add -q "$tmp/demo--closing" -b closing
 echo wip >"$tmp/demo--closing/wip.txt"
 status=0
-(cd "$tmp/demo--closing" && printf 'y\nk' | "$kit/bin/wt" close) >"$tmp/log" 2>&1 || status=$?
-[ "$status" = 1 ] || fail "wt close exited $status after a safety refusal, want 1: $(cat "$tmp/log")"
+(cd "$tmp/demo--closing" && printf 'y\nn\n' | "$kit/bin/wt" close) >"$tmp/log" 2>&1 || status=$?
+[ "$status" = 1 ] || fail "wt close exited $status after declining to force, want 1: $(cat "$tmp/log")"
 grep -qxF "wt: not removing $tmp/demo--closing:" "$tmp/log" || fail "wt close didn't show wt rm's refusal: $(cat "$tmp/log")"
-[ -d "$tmp/demo--closing" ] || fail "wt close removed a worktree wt rm refused"
+[ -d "$tmp/demo--closing" ] || fail "wt close removed a worktree without forcing"
+status=0
+(cd "$tmp/demo--closing" && printf 'y\ny\n' | "$kit/bin/wt" close) >"$tmp/log" 2>&1 || status=$?
+[ "$status" = 0 ] || fail "wt close exited $status after forcing, want 0: $(cat "$tmp/log")"
+grep -qxF "wt: removed $tmp/demo--closing; branch closing kept (git branch -d closing to delete)" "$tmp/log" ||
+  fail "wt close didn't say it forced the removal: $(cat "$tmp/log")"
+[ ! -e "$tmp/demo--closing" ] || fail "wt close forced but left $tmp/demo--closing"
+# any other failure can't be forced: a pause for a key, then exit 1
+git worktree add -q "$tmp/demo--stuck" -b stuck
+git worktree lock "$tmp/demo--stuck"
+status=0
+(cd "$tmp/demo--stuck" && printf 'y\nk' | "$kit/bin/wt" close) >"$tmp/log" 2>&1 || status=$?
+[ "$status" = 1 ] || fail "wt close exited $status on a locked worktree, want 1: $(cat "$tmp/log")"
+[ -d "$tmp/demo--stuck" ] || fail "wt close removed a locked worktree"
 
 echo "ok: wt-rm-exit"

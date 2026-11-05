@@ -41,7 +41,7 @@ usage:
                            breaking change would need --porcelain=v2
   wt rm [-f] <branch>      remove worktree + sessions (-f: skip safety checks)
                            exits 3 on a safety refusal, 1 on other errors
-  wt close                 confirm, then wt rm the worktree you're in
+  wt close                 confirm, wt rm the worktree you're in; offers -f
   wt git-ui [<path>]       run WT_GIT_UI in that worktree (default: here)
   wt doctor                show config and settings, check deps and tmux keys
   wt -h | --help           this help
@@ -405,13 +405,21 @@ cmd_pick() {
 }
 
 cmd_close() {
-  local top ans
+  local top ans status=0
   top="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "wt: not in a git repo"; pause; exit 1; }
   load_repo
   if [ "$top" = "$main" ]; then echo "wt: $top is the main clone, not a worktree"; pause; exit 1; fi
   read -r -p "remove worktree $(basename "$top")? [y/N] " ans
   case "$ans" in y | Y) ;; *) exit 0 ;; esac
-  "$0" rm "$top" || { pause; exit 1; }
+  "$0" rm "$top" || status=$?
+  [ "$status" != 0 ] || exit 0
+  # a safety refusal (3) can be forced, after its problems are on screen; any
+  # other failure can't
+  [ "$status" = 3 ] || { pause; exit 1; }
+  ans=""
+  read -r -p "force? discards the above [y/N] " ans || true
+  case "$ans" in y | Y) ;; *) exit 1 ;; esac
+  "$0" rm -f "$top" || { pause; exit 1; }
 }
 
 # Runs the git UI in the foreground in the worktree or main clone at <path>

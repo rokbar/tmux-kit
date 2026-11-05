@@ -109,7 +109,8 @@ To use a different editor for `prefix e`, put
   Exit status: `3` on a safety refusal (one of the checks above, which `-f`
   overrides), so a script can offer to force; `1` for any other failure (not a
   worktree, the main clone, locked, usage).
-- `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in.
+- `wt close` (`prefix X`): asks, then runs `wt rm` on the worktree you're in;
+  on a safety refusal it shows the problems and offers to force (`wt rm -f`).
 - `wt git-ui [<path>]`: run your git UI (`WT_GIT_UI` in the config, e.g.
   `lazygit`) in the worktree or main clone at `<path>`, by default the
   worktree you're in. It runs in that folder in the foreground, as a shell
