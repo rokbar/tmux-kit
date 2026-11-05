@@ -100,15 +100,15 @@ var agentLooks = map[tmux.AgentState]struct {
 }
 
 // agentMark is the agent column of a row whose agent state is state: a
-// space, then the state's mark, if it has one. On the cursor's row, both
-// are in reverse video too, as the rest of the row is.
-func agentMark(state tmux.AgentState, cursor bool) string {
+// space, then the state's mark, if it has one. On a white row (see white),
+// both are in reverse video too, as the rest of the row is.
+func agentMark(state tmux.AgentState, white bool) string {
 	a, ok := agentLooks[state]
 	if !ok {
 		a.mark = " "
 	}
 	var row []string // the row's style that carries on into the column
-	if cursor {
+	if white {
 		row = []string{reverse}
 	}
 	return styled(" ", row...) + styled(a.mark, append(row, a.style...)...)

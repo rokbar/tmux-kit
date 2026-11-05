@@ -108,6 +108,25 @@ wait_until "a click on beta's project to unfold it, focus on the sidebar" eval '
 click t1 5 5
 wait_until "a click on beta's row to show beta, focus going right" eval '[ "$(showing t1)" = beta ] && focus_on t1 right'
 
+# White is what's open on the right: beta's current window, the one C-b c
+# made, or while beta is folded by hand (h, above), beta's row. A click on
+# its other window makes that one current, and white; focus goes right, so
+# the cursor never shows.
+[ "$(white_row t1)" = "2   ▸ beta" ] || fail "with beta folded by hand, the white row is '$(white_row t1)', want beta's"
+type_in t1 'C-\'
+wait_until "the wtui key to focus the sidebar, on beta" eval 'focus_on t1 sidebar && [ "$(cursor_row t1)" = "2   ▸ beta" ]'
+type_in t1 l Escape
+wait_until "l to unfold beta, esc to focus the right side" eval 'row 5 "2   ▾ beta" && focus_on t1 right'
+current() { tmux display-message -p -t =beta: '#{window_index}'; }
+win="$(sidebar_text t1 | awk '/^ +0 / { print NR; exit }')"
+[ -n "$win" ] && [ "$(current)" = 1 ] || fail "beta's window 0 isn't in sight, or 1 isn't current ($(current)):
+$(sidebar_text t1)"
+[ "$(white_row t1)" = "$(sidebar_text t1 | sed -n "$((win + 1))p")" ] || fail "the white row is '$(white_row t1)', want beta's window 1:
+$(sidebar_text t1)"
+want="$(sidebar_text t1 | sed -n "${win}p")"
+click t1 5 "$win"
+wait_until "a click on beta's window 0 to make it current, and white" eval '[ "$(current)" = 0 ] && [ "$(white_row t1)" = "$want" ] && focus_on t1 right && [ -z "$(cursor_row t1)" ]'
+
 # Dragging the border (column 31) resizes the sidebar.
 drag t1 31 10 25 10
 wait_until "dragging the border to make the sidebar 24 columns wide" eval '[ "$(sidebar_width t1)" = 24 ]'

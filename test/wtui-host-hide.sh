@@ -88,8 +88,9 @@ resize_terminal t1 120
 wait_until "the sidebar to be 34 columns wide again at 120" width_is 34
 
 # Launched in a narrow terminal, the sidebar starts hidden, with focus on the
-# right. Widened, it shows, and shows that it hasn't focus (no cursor) until
-# the wtui key gives it focus.
+# right. Widened, it shows, and shows that it hasn't focus (its header not in
+# reverse video, no cursor; white, as ever, is what's open on the right,
+# alpha's window) until the wtui key gives it focus.
 term_cols=90 launch t2
 hidden t2 || fail "launched in a 90-column terminal, the sidebar shows"
 [ "$(focus t2)" = right ] || fail "launched hidden, focus is on the $(focus t2)"
@@ -97,9 +98,12 @@ resize_terminal t2 120
 wait_until "a 120-column terminal to show t2's sidebar" eval '! hidden t2'
 wait_until "t2's sidebar to be 40 columns wide" eval '[ "$(sidebar_width t2)" = 40 ]'
 wait_until "t2's sidebar to draw its tree" eval 'sidebar_text t2 | grep alpha >/dev/null'
-[ -z "$(cursor_row t2)" ] || fail "launched hidden then shown, the sidebar shows its cursor on '$(cursor_row t2)' without focus"
+! header_focused t2 || fail "launched hidden then shown, the sidebar's header shows it has focus"
+[ -z "$(cursor_row t2)" ] || fail "launched hidden then shown, the cursor shows on '$(cursor_row t2)'"
+window="        0 $(tmux display-message -p -t =alpha:0 '#W')"
+[ "$(white_row t2)" = "$window" ] || fail "launched hidden then shown, the white row is '$(white_row t2)', want alpha's window, '$window'"
 type_in t2 'C-\'
 wait_until "the wtui key to focus t2's sidebar" focus_on t2 sidebar
-wait_until "t2's sidebar to show its cursor on alpha" eval '[ "$(cursor_row t2)" = "1   ▾ alpha" ]'
+wait_until "t2's sidebar to show its cursor on alpha" eval 'header_focused t2 && [ "$(cursor_row t2)" = "1   ▾ alpha" ]'
 
 echo "ok: wtui-host-hide"

@@ -181,7 +181,10 @@ then its worktrees in git's order, and a worktree with one session is one row,
 named after the session (several sessions go under a row for the worktree).
 Other projects list their sessions by name. Sessions unfold into their
 windows; the active session shows its windows, and its row, worktree and
-project are highlighted. The first nine sessions are numbered in the margin.
+project are highlighted. White is what's open on the right: the active
+session's current window (its own row, while you've folded it). While the
+sidebar has focus, its header is white too, and `›` in the margin marks the
+cursor. The first nine sessions are numbered in the margin.
 
 - dimmed: a worktree with no session (`enter` opens one); `✗`: a missing
   worktree;

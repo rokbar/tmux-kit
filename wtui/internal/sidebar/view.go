@@ -3,6 +3,7 @@ package sidebar
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -47,25 +48,27 @@ func styled(text string, params ...string) string {
 }
 
 func (m Model) View() tea.View {
-	// The header shows whether the sidebar has focus: in reverse video with
-	// it, dim without.
+	// The header shows whether the sidebar has focus (see focusShows): in
+	// reverse video with it, dim without.
 	head := []string{dim}
-	if m.focused {
+	if m.focusShows() {
 		head = []string{bold, reverse}
 	}
 	lines := []string{styled(m.fit(" wtui"), head...)}
 	rows, room := m.rows(), m.room()
+	w := m.white(rows)
 	if room >= 0 {
 		rows = rows[min(m.top, len(rows)):min(m.top+room, len(rows))]
 	}
 	for _, r := range rows {
-		var params []string
-		cursor := m.focused && r.ID == m.cursor
-		if cursor {
-			params = append(params, reverse)
+		params := m.highlight(r.Node)
+		white := r.ID == w
+		if white {
+			// in no colour, so it's white whatever the row's colour: reversed,
+			// cyan text would be a cyan background
+			params = append([]string{reverse}, slices.DeleteFunc(params, func(p string) bool { return p == cyan })...)
 		}
-		params = append(params, m.highlight(r.Node)...)
-		lines = append(lines, styled(m.fitTo(m.row(r), m.width-agentColumn), params...)+agentMark(r.Agent, cursor))
+		lines = append(lines, styled(m.fitTo(m.row(r), m.width-agentColumn), params...)+agentMark(r.Agent, white))
 	}
 	status := m.statusLines()
 	for room >= 0 && len(lines) < m.height-len(status)-1 {
@@ -132,6 +135,18 @@ func (m Model) fitTo(line string, width int) string {
 	return line + strings.Repeat(" ", width-ansi.StringWidth(line))
 }
 
+// white is the row of rows that's white (in reverse video): what's open on
+// the right, the active session's current window, or while its windows
+// don't show, the session's own row.
+func (m Model) white(rows []tree.Row) tree.ID {
+	for _, r := range rows {
+		if r.ID.Kind == tree.Window && r.Session == m.active && r.Active {
+			return r.ID
+		}
+	}
+	return tree.ID{Kind: tree.Session, Key: m.active}
+}
+
 // highlight is how node n stands out: the active session in bold cyan, and
 // the rows above it (its worktree and project) in cyan; a session's active
 // window in bold. A worktree without a session (a missing one too) is dim.
@@ -163,13 +178,18 @@ func (m Model) highlight(n *tree.Node) []string {
 func (m Model) rows() []tree.Row { return m.tree.Rows(m.open) }
 
 // row is how row r shows: after a two-column margin, which has a session's
-// number, indented by its depth, a fold mark if it has children, its name,
-// and then its markers (see markers). A name too long for the sidebar (short
-// of the agent state's column) is cut short before its markers are.
+// number, then the cursor's pointer (›) while the sidebar shows it has focus
+// (see focusShows), indented by its depth, a fold mark if it has children,
+// its name, and then its markers (see markers). A name too long for the
+// sidebar (short of the agent state's column) is cut short before its
+// markers are.
 func (m Model) row(r tree.Row) string {
 	margin := "  "
 	if r.Number > 0 {
 		margin = fmt.Sprintf("%d ", r.Number)
+	}
+	if r.ID == m.cursor && m.focusShows() {
+		margin = margin[:1] + "›"
 	}
 	mark := " "
 	if len(r.Children) > 0 {

@@ -133,13 +133,14 @@ func TestAGitProjectListsItsMainCloneThenItsWorktrees(t *testing.T) {
 }
 
 // Worktrees without a session are dimmed, and so are missing ones. The
-// active session's worktree is highlighted, with its project.
+// active session's worktree is highlighted, with its project, and its
+// current window is white.
 func TestWorktreesWithoutASessionAreDimmed(t *testing.T) {
 	f := worktrees()
 	m, _ := update(t, started(t, f), tea.BlurMsg{}) // no cursor
 	want := map[string]string{
 		"  ▾ api": "36", "    ▾ main": "", "1     ▸ api": "", "2     ▸ Bugfix": "",
-		"3   ▾ login": "1;36", "        0 shell": "", "        1 dev": "1",
+		"3   ▾ login": "1;36", "        0 shell": "", "        1 dev": "7;1",
 		"      docs": "2", "      api--rebase ±": "2", "      api--gone ✗": "2",
 		"  ▾ notes": "", "4   ▸ notes": "", "  ▾ Zed": "", "5   ▸ zed": "", "6   ▸ agent": "",
 	}
@@ -216,8 +217,11 @@ func TestEnterOnAWorktreeWithoutASessionOpensItThenShowsIt(t *testing.T) {
 	if !strings.Contains(view, "3   ▸ login\n4   ▾ docs\n        0 shell\n      api--rebase") {
 		t.Errorf("view:\n%s\nwant docs's session there, active", view)
 	}
-	if got := cursor(t, m); got != "4   ▾ docs" {
-		t.Errorf("the cursor is on %q, want docs's session", got)
+	if got := whiteRow(t, m); got != "        0 shell" {
+		t.Errorf("the white row is %q, want docs's session's window", got)
+	}
+	if got := cursor(t, m); got != "" {
+		t.Errorf("with focus sent right, the cursor shows on %q, want it nowhere", got)
 	}
 }
 

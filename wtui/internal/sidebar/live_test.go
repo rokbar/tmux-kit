@@ -103,7 +103,7 @@ func TestTheActiveSessionFollowsTheRightSide(t *testing.T) {
 	}
 	want := map[string]string{
 		"  ▾ api": "", "1   ▸ api": "", "2   ▸ Bugfix": "", "3   ▸ fix-login": "",
-		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "5   ▸ zed": "",
+		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "7;1", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("with notes active, the rows' styles are %q, want %q", got, want)

@@ -185,13 +185,24 @@ func started(t *testing.T, f fakes) Model {
 	return feed(t, m, m.Init())
 }
 
-// plain is the view without its styles, each line without trailing spaces.
+// plain is the view without its styles or the cursor's pointer (see
+// cursor), each line without trailing spaces.
 func plain(m Model) string {
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	for i, l := range lines {
-		lines[i] = strings.TrimRight(l, " ")
+		lines[i] = strings.TrimRight(unpointed(l), " ")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// unpointed is line, as it shows without its styles, without the cursor's
+// pointer (› in the margin's second column) if it has it.
+func unpointed(line string) string {
+	if r := []rune(line); len(r) > 1 && r[1] == '›' {
+		r[1] = ' '
+		return string(r)
+	}
+	return line
 }
 
 // sgr is the SGR parameters line starts with ("" for none), e.g. "1;36".
@@ -206,18 +217,31 @@ func sgr(line string) string {
 
 func hasParam(params, p string) bool { return slices.Contains(strings.Split(params, ";"), p) }
 
-// cursor is the row the cursor is on, as it shows, or "" if none shows: the
-// row in reverse video, under the header.
+// cursor is the cursor's row, as plain shows it, or "" while the sidebar
+// doesn't show it has focus: the row with the cursor's pointer, under the
+// header.
 func cursor(t *testing.T, m Model) string {
+	t.Helper()
+	for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n")[1:] {
+		if u := unpointed(line); u != line {
+			return strings.TrimRight(u, " ")
+		}
+	}
+	return ""
+}
+
+// whiteRow is the white row, as plain shows it, or "" if none shows: the
+// row in reverse video, under the header (see white).
+func whiteRow(t *testing.T, m Model) string {
 	t.Helper()
 	var on []string
 	for _, line := range strings.Split(m.View().Content, "\n")[1:] {
 		if hasParam(sgr(line), "7") {
-			on = append(on, strings.TrimRight(ansi.Strip(line), " "))
+			on = append(on, strings.TrimRight(unpointed(ansi.Strip(line)), " "))
 		}
 	}
 	if len(on) > 1 {
-		t.Fatalf("the cursor is on %d rows: %q", len(on), on)
+		t.Fatalf("%d rows are white: %q", len(on), on)
 	}
 	if len(on) == 0 {
 		return ""
@@ -363,33 +387,39 @@ func TestAFailedReadOfTheActiveSessionShowsOnce(t *testing.T) {
 	}
 }
 
-// The cursor shows only while the sidebar has focus, and the header shows
-// which: in reverse video with focus, dim without. The sidebar starts with
-// focus (the host gives it focus, and tmux doesn't say so). Getting focus
-// puts the cursor on the active session, once focus has settled (see
-// TestTheCursorGoesToTheActiveSessionOnceFocusSettles).
+// The cursor shows only while the sidebar shows it has focus, and so does
+// the header: in reverse video then, dim otherwise. The sidebar starts with
+// focus (the host gives it focus, and tmux doesn't say so). Focus it gets
+// shows once it has settled, a moment later, with the cursor on the active
+// session (see TestTheCursorGoesToTheActiveSessionOnceFocusSettles); until
+// then nothing shows it, so a click that gives the sidebar focus and sends
+// it right again shows nothing of it.
 func TestGettingFocusPutsTheCursorOnTheActiveSession(t *testing.T) {
 	m := started(t, fixture())
 	if got := cursor(t, m); got != "3   ▾ fix-login" || !hasParam(sgr(header(m)), "7") {
 		t.Errorf("at launch, the header is %q and the cursor on %q, want focus, on the active session, fix-login", header(m), got)
 	}
+	m = keys(t, m, press("k")) // Bugfix
 	m, _ = update(t, m, tea.BlurMsg{})
 	if got := cursor(t, m); got != "" {
-		t.Errorf("without focus, the cursor shows on %q", got)
+		t.Errorf("without focus, the cursor shows on %q, want it nowhere", got)
 	}
 	if params := sgr(header(m)); !hasParam(params, "2") || hasParam(params, "7") {
 		t.Errorf("without focus, the header is %q, want it dim", header(m))
 	}
-	m = gotFocus(t, m)
+	c, after := &clock{}, m.after
+	m.after = c.after
+	m, _ = update(t, m, tea.FocusMsg{})
+	m.after = after
+	if got := cursor(t, m); got != "" || hasParam(sgr(header(m)), "7") {
+		t.Errorf("as focus settles, the header is %q and the cursor shows on %q, want neither to show focus yet", header(m), got)
+	}
+	m, _ = update(t, m, c.tick(t))
 	if got := cursor(t, m); got != "3   ▾ fix-login" {
 		t.Errorf("with focus, the cursor is on %q, want the active session, fix-login", got)
 	}
 	if params := sgr(header(m)); !hasParam(params, "7") {
 		t.Errorf("with focus, the header is %q, want it in reverse video", header(m))
-	}
-	m, _ = update(t, m, tea.BlurMsg{})
-	if got := cursor(t, m); got != "" {
-		t.Errorf("after losing focus, the cursor shows on %q", got)
 	}
 }
 
@@ -557,13 +587,14 @@ func TestAShownWindowBecomesItsSessionsActiveOne(t *testing.T) {
 	}
 	m, _ = update(t, m, tmux.WindowsChanged{Session: "$2", Windows: f.normal.snap.Sessions[1].Windows})
 	m, _ = update(t, m, tea.BlurMsg{}) // focus went right
-	if got := styles(m); got["        0 shell"] != "1" || got["        1 dev"] != "" {
-		t.Errorf("after showing fix-login's shell, its windows are styled %q and %q, want shell in bold",
+	if got := styles(m); got["        0 shell"] != "7;1" || got["        1 dev"] != "" {
+		t.Errorf("after showing fix-login's shell, its windows are styled %q and %q, want shell white, in bold",
 			got["        0 shell"], got["        1 dev"])
 	}
 }
 
-// If showing fails, focus stays, and the status line says why.
+// If showing fails, focus stays, and shows again, with the cursor where it
+// was, and the status line says why.
 func TestAFailedShowStaysAndSaysWhy(t *testing.T) {
 	f := fixture()
 	f.normal.showErr = errors.New("can't find session: $5")
@@ -572,6 +603,9 @@ func TestAFailedShowStaysAndSaysWhy(t *testing.T) {
 	m, _ = update(t, m, run(t, cmd))
 	if len(f.host.asked) > 0 {
 		t.Errorf("after a failed show, the sidebar asked the host %q", f.host.asked)
+	}
+	if got := cursor(t, m); got != "2   ▸ Bugfix" || !hasParam(sgr(header(m)), "7") {
+		t.Errorf("after a failed show, the header is %q and the cursor on %q, want focus, on Bugfix", header(m), got)
 	}
 	if got := plain(m); !strings.HasSuffix(got, "\ncan't find session: $5") {
 		t.Errorf("view:\n%s\nwant it to end with the failure", got)
@@ -583,20 +617,21 @@ func TestAFailedShowStaysAndSaysWhy(t *testing.T) {
 func styles(m Model) map[string]string {
 	got := map[string]string{}
 	for _, line := range strings.Split(m.View().Content, "\n")[1:] {
-		got[strings.TrimRight(ansi.Strip(line), " ")] = sgr(line)
+		got[strings.TrimRight(unpointed(ansi.Strip(line)), " ")] = sgr(line)
 	}
 	return got
 }
 
 // The active session is in bold cyan and its project in cyan; each
-// session's active window is in bold. When the active session changes, so
-// does the highlight.
+// session's active window is in bold, the active session's white (see
+// TestTheWhiteRowIsTheWindowOpenOnTheRight). When the active session
+// changes, so does the highlight.
 func TestTheActiveSessionAndItsProjectAreHighlighted(t *testing.T) {
 	m, _ := update(t, started(t, fixture()), tea.BlurMsg{}) // no cursor
 
 	want := map[string]string{
 		"  ▾ api": "36", "1   ▸ api": "", "2   ▸ Bugfix": "",
-		"3   ▾ fix-login": "1;36", "        0 shell": "", "        1 dev": "1",
+		"3   ▾ fix-login": "1;36", "        0 shell": "", "        1 dev": "7;1",
 		"  ▾ notes": "", "4   ▸ notes": "", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
@@ -605,10 +640,39 @@ func TestTheActiveSessionAndItsProjectAreHighlighted(t *testing.T) {
 	m, _ = update(t, m, Active{Session: "$3"})
 	want = map[string]string{
 		"  ▾ api": "", "1   ▸ api": "", "2   ▸ Bugfix": "", "3   ▸ fix-login": "",
-		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "1", "  ▾ Zed": "", "5   ▸ zed": "",
+		"  ▾ notes": "36", "4   ▾ notes": "1;36", "        0 vim": "7;1", "  ▾ Zed": "", "5   ▸ zed": "",
 	}
 	if got := styles(m); !maps.Equal(got, want) {
 		t.Errorf("with notes active, the rows' styles are %q, want %q", got, want)
+	}
+}
+
+// White (reverse video, in no colour) is what's open on the right: the
+// active session's current window, in bold, with focus or without, wherever
+// the cursor is, and its session's row stays bold cyan. While the active
+// session's windows don't show (folded by hand), its own row is white. The
+// cursor shows as a pointer, › in the margin's second column, after a
+// session's number.
+func TestTheWhiteRowIsTheWindowOpenOnTheRight(t *testing.T) {
+	m := keys(t, focused(t, fixture()), press("k")) // Bugfix
+	if got := styles(m); got["2   ▸ Bugfix"] != "" || got["3   ▾ fix-login"] != "1;36" || got["        1 dev"] != "7;1" {
+		t.Errorf("with focus, on Bugfix, Bugfix is styled %q, fix-login %q and its dev %q, want dev white, in bold, fix-login bold cyan",
+			got["2   ▸ Bugfix"], got["3   ▾ fix-login"], got["        1 dev"])
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "\n2›  ▸ Bugfix") {
+		t.Errorf("with focus, on Bugfix, the view is:\n%s\nwant the pointer after Bugfix's number", view)
+	}
+	m = keys(t, m, press("k"), press("k")) // api, the active session's project
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "\n ›▾ api") {
+		t.Errorf("with focus, on api, the view is:\n%s\nwant the pointer in api's margin", view)
+	}
+	m, _ = update(t, m, tea.BlurMsg{})
+	if got, at := whiteRow(t, m), cursor(t, m); got != "        1 dev" || at != "" {
+		t.Errorf("without focus, the white row is %q and the cursor on %q, want dev white, no cursor", got, at)
+	}
+	m = keys(t, gotFocus(t, m), press("h")) // fix-login folded by hand
+	if got := styles(m)["3   ▸ fix-login"]; got != "7;1" {
+		t.Errorf("with fix-login folded by hand, it's styled %q, want white, in bold", got)
 	}
 }
 
@@ -743,13 +807,15 @@ func TestTheCursorStaysInSightWhenItsRowFoldsAway(t *testing.T) {
 	}
 }
 
-// At launch, focus comes before the tree and the active session are known,
-// in either order; the cursor lands on the active session once they are.
+// At launch, focus comes and settles before the tree and the active session
+// are known, in either order; the cursor lands on the active session once
+// they are.
 func TestTheCursorLandsOnTheActiveSessionAtLaunch(t *testing.T) {
 	for _, activeFirst := range []bool{true, false} {
 		f := fixture()
 		m := New(Clients{Host: f.host, Normal: f.normal, Repos: f.repos, Wt: f.wt}, `C-\`)
 		m, _ = update(t, m, tea.FocusMsg{})
+		m, _ = update(t, m, settled{})
 		batch, ok := run(t, m.Init()).(tea.BatchMsg)
 		if !ok || len(batch) != 2 {
 			t.Fatalf("Init gives %v, want a batch of two: the active session and the build", batch)
@@ -811,9 +877,10 @@ func click(y int) tea.MouseClickMsg { return tea.MouseClickMsg{X: 5, Y: y, Butto
 // A click on a row puts the cursor there and does what enter does: on a
 // session (a worktree's one session too) it shows it on the right, and on a
 // window its session at that window; on a worktree without a session it has
-// wt open one first; then focus goes right. On a project, or a worktree with
-// several sessions, it folds or unfolds it, and focus stays; on a missing
-// worktree it shows a hint. The sidebar asks for mouse events.
+// wt open one first; then focus goes right, so the cursor no longer shows.
+// On a project, or a worktree with several sessions, it folds or unfolds it,
+// and focus stays; on a missing worktree it shows a hint. The sidebar asks
+// for mouse events.
 func TestAClickOnARowChoosesIt(t *testing.T) {
 	if got := started(t, fixture()).View().MouseMode; got != tea.MouseModeCellMotion {
 		t.Errorf("the sidebar's mouse mode is %v, want clicks", got)
@@ -821,14 +888,14 @@ func TestAClickOnARowChoosesIt(t *testing.T) {
 	right := []string{"focus right"}
 	for _, c := range []struct {
 		y                    int
-		row                  string // the cursor's, once clicked
+		row                  string // the cursor's, once clicked, if it shows
 		shown, opened, asked []string
 		view                 string // what the view has then, if not ""
 	}{
-		{y: 4, row: "2     ▸ Bugfix", shown: []string{"$5"}, asked: right},
-		{y: 5, row: "3   ▾ login", shown: []string{"$2"}, asked: right},
-		{y: 7, row: "        1 dev", shown: []string{"$2:@21"}, asked: right},
-		{y: 8, row: "      docs", opened: []string{"/p/api /p/api--docs"}, shown: []string{"$91"}, asked: right},
+		{y: 4, shown: []string{"$5"}, asked: right},
+		{y: 5, shown: []string{"$2"}, asked: right},
+		{y: 7, shown: []string{"$2:@21"}, asked: right},
+		{y: 8, opened: []string{"/p/api /p/api--docs"}, shown: []string{"$91"}, asked: right},
 		{y: 10, row: "      api--gone ✗", view: "\napi--gone is missing"},
 		{y: 1, row: "  ▸ api", view: "\n  ▸ api\n  ▾ notes\n"},
 		{y: 2, row: "    ▸ main", view: "\n    ▸ main\n3   ▾ login\n"},
@@ -836,17 +903,17 @@ func TestAClickOnARowChoosesIt(t *testing.T) {
 		f := worktrees()
 		m, cmd := update(t, focused(t, f), click(c.y))
 		if got := cursor(t, m); got != c.row {
-			t.Errorf("after a click on line %d, the cursor is on %q, want %q", c.y, got, c.row)
+			t.Errorf("after a click on line %d, the cursor shows on %q, want %q", c.y, got, c.row)
 		}
 		if cmd != nil {
 			m = feed(t, m, cmd)
 		}
 		if !slices.Equal(f.normal.shown, c.shown) || !slices.Equal(f.wt.opened, c.opened) || !slices.Equal(f.host.asked, c.asked) {
-			t.Errorf("a click on %q showed %q, opened %q and asked the host %q, want %q, %q and %q",
-				c.row, f.normal.shown, f.wt.opened, f.host.asked, c.shown, c.opened, c.asked)
+			t.Errorf("a click on line %d showed %q, opened %q and asked the host %q, want %q, %q and %q",
+				c.y, f.normal.shown, f.wt.opened, f.host.asked, c.shown, c.opened, c.asked)
 		}
 		if !strings.Contains(plain(m), c.view) {
-			t.Errorf("after a click on %q, the view is:\n%s\nwant it to have:\n%s", c.row, plain(m), c.view)
+			t.Errorf("after a click on line %d, the view is:\n%s\nwant it to have:\n%s", c.y, plain(m), c.view)
 		}
 	}
 }
@@ -855,7 +922,8 @@ func TestAClickOnARowChoosesIt(t *testing.T) {
 // on the rows as they showed. Focus alone has the cursor go to the active
 // session (fix-login) once it settles, unfolding its project if it was
 // folded by hand, or scrolling to it, which would shift the rows under the
-// click; after a click, the cursor stays on the row clicked.
+// click; after a click, the rows stay as they showed, and focus, sent right,
+// shows nowhere.
 func TestAClickThatGivesFocusActsOnTheRowsAsTheyShowed(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -880,14 +948,57 @@ func TestAClickThatGivesFocusActsOnTheRowsAsTheyShowed(t *testing.T) {
 		m, _ = update(t, m, tea.FocusMsg{})
 		m, cmd := update(t, m, click(3))
 		m, _ = update(t, m, ticks.tick(t)) // focus settles
-		if got := cursor(t, m); got != "4   ▸ notes" {
-			t.Errorf("%s: after a click on notes's session that gave the sidebar focus, the cursor is on %q, want it there",
-				c.name, got)
+		if got := plain(m); got != c.view {
+			t.Errorf("%s: after a click on notes's session that gave the sidebar focus, the view is:\n%s\nwant it as it was:\n%s",
+				c.name, got, c.view)
 		}
 		run(t, cmd)
 		if want := []string{"$3"}; !slices.Equal(f.normal.shown, want) {
 			t.Errorf("%s: a click on notes's session that gave the sidebar focus showed %q, want %q", c.name, f.normal.shown, want)
 		}
+	}
+}
+
+// A click from the right side on a window of the session there shows
+// nothing of the focus it gives the sidebar on the way, which goes right
+// again: the header stays dim, and no row has the cursor's pointer. White
+// moves from the window that was open to the one clicked, once tmux says
+// that's its session's current window, and the session's row stays bold
+// cyan, never white.
+func TestAClickFromTheRightMovesTheWhiteToTheWindowWithoutABlink(t *testing.T) {
+	m, c := ticking(t, fixture())
+	m, _ = update(t, m, tea.BlurMsg{})
+	var whites []string
+	look := func(m Model, when string) {
+		t.Helper()
+		if params := sgr(header(m)); hasParam(params, "7") {
+			t.Errorf("%s, the header is %q, want it dim", when, header(m))
+		}
+		if got := cursor(t, m); got != "" {
+			t.Errorf("%s, the cursor shows on %q, want it nowhere", when, got)
+		}
+		if got := styles(m)["3   ▾ fix-login"]; got != "1;36" {
+			t.Errorf("%s, fix-login's row is styled %q, want bold cyan", when, got)
+		}
+		whites = append(whites, whiteRow(t, m))
+	}
+	look(m, "with focus on the right")
+	m, _ = update(t, m, tea.FocusMsg{})
+	settled := c.tick(t)
+	look(m, "as the click gives the sidebar focus")
+	m, cmd := update(t, m, click(5)) // fix-login's shell
+	look(m, "on the click")
+	m = feed(t, m, cmd)
+	look(m, "once shown")
+	m, _ = update(t, m, tea.BlurMsg{})
+	look(m, "as focus goes right")
+	m, _ = update(t, m, loginAtShell)
+	look(m, "once tmux says shell is current")
+	m, _ = update(t, m, settled)
+	look(m, "when focus would have settled")
+	dev, shell := "        1 dev", "        0 shell"
+	if want := []string{dev, dev, dev, dev, dev, shell, shell}; !slices.Equal(whites, want) {
+		t.Errorf("the white row, step by step, is %q, want %q", whites, want)
 	}
 }
 
@@ -1003,13 +1114,12 @@ func TestTheTreeScrollsInAShortPane(t *testing.T) {
 		t.Errorf("with the cursor on notes, the view is:\n%s\nwant:\n%s", got, want)
 	}
 	m = keys(t, m, press("k"), press("k"), press("k"), press("k"), press("k")) // session api
-	m, _ = update(t, m, click(2))
-	if got := cursor(t, m); got != "2   ▸ Bugfix" {
-		t.Errorf("after a click on line 2, the cursor is on %q, want Bugfix", got)
-	}
 	f.normal.showErr = errors.New("can't find session")
-	m, cmd := update(t, m, enter)
+	m, cmd := update(t, m, click(2))
 	m, _ = update(t, m, run(t, cmd))
+	if want := []string{"$5"}; !slices.Equal(f.normal.shown, want) || cursor(t, m) != "2   ▸ Bugfix" {
+		t.Errorf("a click on line 2 showed %q, with the cursor on %q, want %q, Bugfix", f.normal.shown, cursor(t, m), want)
+	}
 	want = " wtui\n1   ▸ api\n2   ▸ Bugfix\n3   ▾ fix-login\n        0 shell\ncan't find session\n? shortcuts"
 	if got := plain(m); got != want {
 		t.Errorf("with a status line, the view is:\n%s\nwant:\n%s", got, want)

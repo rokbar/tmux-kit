@@ -26,7 +26,7 @@ func TestWhenTheActiveSessionEndsTheSidebarTakesFocus(t *testing.T) {
 	if want := []string{"focus sidebar"}; !slices.Equal(f.host.asked, want) {
 		t.Errorf("when the active session ended, the sidebar asked the host %q, want %q", f.host.asked, want)
 	}
-	m, _ = update(t, m, tea.FocusMsg{}) // as tmux says, once the sidebar has focus
+	m = gotFocus(t, m) // as tmux says, once the sidebar has focus
 	if got := cursor(t, m); got != "4   ▾ notes" {
 		t.Errorf("once the sidebar has focus, the cursor is on %q, want notes, the session shown now", got)
 	}
@@ -72,12 +72,12 @@ func TestWithNoSessionLeftTheTreeIsEmptyUntilOneComes(t *testing.T) {
 		f.normal.snap = tmux.Snapshot{}
 		m, build := update(t, m, tmux.SessionsChanged{})
 		if focusFirst { // the right side gave the sidebar focus before the tree caught up
-			m, _ = update(t, m, tea.FocusMsg{})
+			m = gotFocus(t, m)
 		}
 		m, _ = update(t, m, tmux.ActiveSessionChanged{}) // the right side shows none
 		m = feed(t, m, build)
 		if !focusFirst {
-			m, _ = update(t, m, tea.FocusMsg{})
+			m = gotFocus(t, m)
 		}
 		if got := plain(m); got != " wtui" {
 			t.Errorf("focus first: %v; with no session, the view is:\n%s\nwant only the header", focusFirst, got)

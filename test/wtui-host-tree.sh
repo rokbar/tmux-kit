@@ -37,7 +37,8 @@ wait_until "the sidebar to show the tree" sidebar_shows t1 "$tree"
 
 # The sidebar shows it has focus: its cursor, on beta, the active session.
 # Moving it changes nothing on the right; enter on gamma shows gamma there,
-# with focus there too, and the cursor goes.
+# with focus there too: the sidebar no longer shows focus (its header, the
+# cursor), and the white row is gamma's window, as what's open there.
 cursor_on() { [ "$(cursor_row t1)" = "$1" ]; }
 wait_until "the cursor to show on beta" cursor_on '4   ▾ beta'
 type_in t1 j j
@@ -46,7 +47,8 @@ wait_until "j j to move the cursor to gamma" cursor_on '5   ▸ gamma'
 type_in t1 Enter
 wait_until "enter on gamma to show it on the right" eval '[ "$(showing t1)" = gamma ]'
 wait_until "enter to focus the right side" focus_on t1 right
-wait_until "the sidebar to show it lost focus" cursor_on ''
+window="        0 $(tmux display-message -p -t =gamma:0 '#W')"
+wait_until "the sidebar to show it lost focus, gamma's window white" eval '! header_focused t1 && cursor_on "" && [ "$(white_row t1)" = "$window" ]'
 
 # Back in the sidebar (the wtui key), the cursor is on gamma, the active
 # session, wherever it was before: here, moved to alpha before esc. So k,

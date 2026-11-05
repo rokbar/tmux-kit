@@ -30,10 +30,16 @@
 #   screen <t>                   what <t> shows
 #   sidebar_text <t>             what <t>'s sidebar shows, without trailing
 #                                spaces or blank lines, or its last line
-#                                (? shortcuts)
+#                                (? shortcuts), or the cursor's pointer
 #   sidebar_shows <t> <text>     whether that's <text>
-#   cursor_row <t>               the sidebar's row in reverse video, without
-#                                its styles: its cursor, while it has focus
+#   cursor_row <t>               the sidebar's row with the cursor's pointer
+#                                (›), as sidebar_text shows it: none unless
+#                                the sidebar shows it has focus
+#   white_row <t>                the sidebar's row in reverse video (white),
+#                                as sidebar_text shows it: what's open on the
+#                                right, its session's current window
+#   header_focused <t>           whether the sidebar's header is in reverse
+#                                video: it shows that it has focus
 #   term <tmux args>             tmux on the terminal server
 #   host <t> <tmux args>         tmux on <t>'s host server
 #   sidebar_pane <t>, right_pane <t>
@@ -174,17 +180,24 @@ host_width_is() { [ "$(host "$1" display-message -p '#{window_width}')" = "$2" ]
 
 screen() { term capture-pane -p -t "=$1:"; }
 
+# unpointed drops the cursor's pointer (› in the margin's second column).
 # awk drops trailing spaces, the footer, and blank lines unless something
 # follows them.
+unpointed() { sed 's/^\(.\)›/\1 /'; }
 sidebar_text() {
-  host "$1" capture-pane -p -t "$(sidebar_pane "$1")" |
+  host "$1" capture-pane -p -t "$(sidebar_pane "$1")" | unpointed |
     awk '{ sub(/ +$/, "") } $0 == "? shortcuts" { next } $0 == "" { blank++; next } { while (blank) { print ""; blank-- } print }'
 }
 sidebar_shows() { [ "$(sidebar_text "$1")" = "$2" ]; }
 
+# Under the header, the row with the cursor's pointer.
+cursor_row() {
+  host "$1" capture-pane -p -t "$(sidebar_pane "$1")" | sed -n '2,$ s/^\(.\)›/\1 /p' | sed 's/ *$//'
+}
+
 # Under the header, the row with an SGR 7 (reverse) among its styles. ESC
 # becomes ~ first, so awk needn't match it.
-cursor_row() {
+white_row() {
   host "$1" capture-pane -e -p -t "$(sidebar_pane "$1")" | tr '\033' '~' | awk '
     NR > 1 {
       line = $0; reverse = 0
@@ -195,7 +208,22 @@ cursor_row() {
       }
       sub(/ +$/, "", line)
       if (reverse) print line
-    }'
+    }' | unpointed
+}
+
+# The header with an SGR 7 (reverse) among its styles, as the sidebar shows
+# it while it has focus. ESC becomes ~ first, as for white_row.
+header_focused() {
+  host "$1" capture-pane -e -p -t "$(sidebar_pane "$1")" | tr '\033' '~' | awk '
+    NR == 1 {
+      line = $0
+      while (match(line, /~\[[0-9;]*m/)) {
+        n = split(substr(line, RSTART + 2, RLENGTH - 3), p, ";")
+        for (i = 1; i <= n; i++) if (p[i] == "7") focused = 1
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+    END { exit !focused }'
 }
 
 # The sidebar is the pane running `wtui sidebar`; the right side, the other.

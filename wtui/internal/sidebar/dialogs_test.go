@@ -256,7 +256,7 @@ func TestAfterADialogTheCursorIsOnWhatTheRightSideShows(t *testing.T) {
 	msg := run(t, cmd)
 	f.normal.active = "$1" // the picker showed api
 	m, _ = update(t, m, tea.BlurMsg{})
-	m, _ = update(t, m, tea.FocusMsg{}) // before tmux says so
+	m = gotFocus(t, m) // before tmux says so
 	m, next := update(t, m, msg)
 	if next != nil {
 		m = drain(t, m, next)
@@ -280,7 +280,7 @@ func TestAfterADialogTheCursorIsOnTheSessionItOpened(t *testing.T) {
 	f.normal.active = "$7"
 	m, _ = update(t, m, tea.BlurMsg{})
 	m, reads := update(t, m, closed)
-	m, _ = update(t, m, tea.FocusMsg{})
+	m = gotFocus(t, m)
 	m, build := update(t, m, tmux.SessionsChanged{})
 	m = drain(t, m, build)
 	m = drain(t, m, reads)

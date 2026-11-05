@@ -86,6 +86,7 @@ tree=' wtui
         0 shell'
 soon "the tree to follow the right side to gamma" sidebar_shows t1 "$tree"
 soon "gamma to be highlighted" highlighted '3   ▾ gamma'
+soon "gamma's window to be white, as what's open" eval '[ "$(white_row t1)" = "        0 shell" ]'
 highlighted '2   ▸ beta' && fail "beta is still highlighted: $(row_style t1 '2   ▸ beta')"
 wait_until "the control client to follow the right side to gamma" eval '[ "$(ctl_on)" = gamma ]'
 type_in t1 'C-\'

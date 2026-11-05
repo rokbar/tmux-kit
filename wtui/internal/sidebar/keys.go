@@ -192,8 +192,10 @@ func (m Model) enter() (Model, tea.Cmd) {
 	case missing(n):
 		return m.hinted(isMissing(n.Worktree))
 	case n.ID.Kind == tree.Worktree:
+		m.leaving = true
 		return m, m.opening(n)
 	}
+	m.leaving = true
 	return m, m.show(n.Session, n.Window)
 }
 

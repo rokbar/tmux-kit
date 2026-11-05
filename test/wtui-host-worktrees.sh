@@ -40,7 +40,7 @@ tree=' wtui
 wait_until "the sidebar to show api's worktrees" sidebar_shows t1 "$tree"
 
 # dimmed <row>: the sidebar's row <row>, as sidebar_text shows it, has an SGR
-# 2 (dim) among its styles. ESC becomes ~ first, as for cursor_row.
+# 2 (dim) among its styles. ESC becomes ~ first, as for white_row.
 dimmed() {
   host t1 capture-pane -e -p -t "$(sidebar_pane t1)" | tr '\033' '~' | awk -v row="$1" '
     {

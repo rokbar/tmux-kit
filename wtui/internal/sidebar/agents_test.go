@@ -164,7 +164,7 @@ func rowCells(t *testing.T, m Model, row string) []cell {
 		for _, c := range cells[:max(0, len(cells)-2)] {
 			text += c.text
 		}
-		if strings.TrimRight(text, " ") == row {
+		if strings.TrimRight(unpointed(text), " ") == row {
 			return cells
 		}
 	}
@@ -173,8 +173,8 @@ func rowCells(t *testing.T, m Model, row string) []cell {
 }
 
 // The agent state is a column at the right edge of each row, after a space:
-// a red !, a yellow *, a dim green ✓. On the cursor's row, it's in reverse
-// video, as the rest of the row is.
+// a red !, a yellow *, a dim green ✓. On the white row (see white, here
+// login's dev window), it's in reverse video, as the rest of the row is.
 func TestTheAgentStateIsAColumnAtTheRightEdge(t *testing.T) {
 	m := focused(t, withAgents()) // the cursor on login
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 30, Height: 30})
@@ -184,7 +184,8 @@ func TestTheAgentStateIsAColumnAtTheRightEdge(t *testing.T) {
 		{"  ▾ api", "!", "31", ""},
 		{"    ▾ main", "*", "33", ""},
 		{"1     ▸ api", "✓", "2;32", ""},
-		{"3   ▾ login", "!", "7;31", "7"},
+		{"3   ▾ login", "!", "31", ""},
+		{"        1 dev", "*", "7;33", "7"},
 		{"  ▾ notes", " ", "", ""},
 	} {
 		cells := rowCells(t, m, c.row)
@@ -195,6 +196,11 @@ func TestTheAgentStateIsAColumnAtTheRightEdge(t *testing.T) {
 		if got, gap := cells[29], cells[28]; got != (cell{c.mark, c.params}) || gap != (cell{" ", c.gap}) {
 			t.Errorf("row %q ends with %+v, then %+v; want a space styled %q, then %q styled %q", c.row, gap, got, c.gap, c.mark, c.params)
 		}
+	}
+	m, _ = update(t, m, tea.BlurMsg{})
+	cells := rowCells(t, m, "        1 dev")
+	if got, gap := cells[29], cells[28]; got != (cell{"*", "7;33"}) || gap != (cell{" ", "7"}) {
+		t.Errorf("without focus, login's dev window ends with %+v, then %+v; want it white still", gap, got)
 	}
 }
 

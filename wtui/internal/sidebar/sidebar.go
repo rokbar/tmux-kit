@@ -159,6 +159,9 @@ type Model struct {
 	// settling is whether the sidebar has just got focus, and the cursor
 	// goes to the active session once focus has settled (see focusWait).
 	settling bool
+	// leaving is whether enter (or a click) has sent focus right, and it
+	// hasn't gone yet: from then on, the sidebar doesn't show it has focus.
+	leaving bool
 
 	width, height int
 	top           int // the first row the view shows
@@ -320,12 +323,12 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.FocusMsg:
-		m.focused, m.settling = true, true
+		m.focused, m.settling, m.leaving = true, true, false
 		return m, m.after(focusWait, settled{})
 	case settled:
 		return m.settle(), nil
 	case tea.BlurMsg:
-		m.focused = false
+		m.focused, m.leaving = false, false
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
 			m.status.hint = ""
@@ -396,6 +399,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	case shown:
 		m.status.action = saidText(msg.said, msg.err)
+		if msg.err != nil {
+			m.leaving = false // focus stays
+		}
 		if msg.session != "" {
 			// at once, before tmux says so (ActiveSessionChanged); a window
 			// shown becomes its session's current one when tmux says that
@@ -494,6 +500,12 @@ func (m Model) clickOn(y int) (Model, tea.Cmd) {
 // stays where it put it; a key settles focus at once, so it acts with the
 // cursor on the active session, as after the wtui key.
 const focusWait = 50 * time.Millisecond
+
+// focusShows is whether the sidebar shows it has focus (its header in
+// reverse video, the cursor's pointer): not while focus settles, nor once
+// enter has sent it right, so a click from the right side, which gives the
+// sidebar focus and sends it right again, shows nothing of it.
+func (m Model) focusShows() bool { return m.focused && !m.settling && !m.leaving }
 
 // settled is focus settled, focusWait after the sidebar got it.
 type settled struct{}
